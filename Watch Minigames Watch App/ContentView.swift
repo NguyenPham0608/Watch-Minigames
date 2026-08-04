@@ -15,6 +15,9 @@ struct ContentView: View {
                 GolfHome()
                 PongHome()
                 StackerHome()
+                BricksHome()
+                EchoHome()
+                FruitHome()
             }
         }
     }

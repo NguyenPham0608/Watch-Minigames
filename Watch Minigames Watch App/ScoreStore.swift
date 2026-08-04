@@ -22,6 +22,9 @@ final class ScoreStore {
         var pongWins: Int? = nil
         var pongDifficulty: Int? = nil
         var stackerBest: Int? = nil
+        /// Bests for the arcade games, keyed by game id ("bricks", "echo",
+        /// "fruit"). Optional so older stores decode.
+        var arcadeBests: [String: Int]? = nil
     }
 
     private var data = StoreData()
@@ -67,6 +70,20 @@ final class ScoreStore {
     func recordRound(total: Int) -> Bool {
         if let existing = data.bestRound, existing <= total { return false }
         data.bestRound = total
+        save()
+        return true
+    }
+
+    func arcadeBest(_ key: String) -> Int {
+        data.arcadeBests?[key] ?? 0
+    }
+
+    @discardableResult
+    func recordArcadeBest(_ key: String, _ score: Int) -> Bool {
+        guard score > arcadeBest(key) else { return false }
+        var bests = data.arcadeBests ?? [:]
+        bests[key] = score
+        data.arcadeBests = bests
         save()
         return true
     }
