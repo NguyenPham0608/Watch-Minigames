@@ -97,6 +97,39 @@ struct ResultCard: View {
     }
 }
 
+// MARK: - Glass score chip
+
+/// Liquid glass where the OS provides it, frosted capsule where it doesn't.
+struct GlassChip: ViewModifier {
+    func body(content: Content) -> some View {
+        if #available(watchOS 26.0, *) {
+            content.glassEffect(.regular, in: Capsule())
+        } else {
+            content
+                .background(.ultraThinMaterial, in: Capsule())
+                .overlay(Capsule().stroke(Palette.ink.opacity(0.22), lineWidth: 1))
+        }
+    }
+}
+
+/// Score number in a glass chip; `flash` (1 → just scored) pops the scale.
+/// Game objects pass behind it and blur instead of colliding with digits.
+struct ScoreChip: View {
+    let score: Int
+    var flash: Double = 0
+
+    var body: some View {
+        Text("\(score)")
+            .font(.system(size: 19, weight: .heavy, design: .rounded))
+            .monospacedDigit()
+            .foregroundStyle(Palette.ink.opacity(0.9))
+            .padding(.horizontal, 11)
+            .padding(.vertical, 3)
+            .modifier(GlassChip())
+            .scaleEffect(1 + flash * 0.12)
+    }
+}
+
 // MARK: - Floating score popups
 
 struct Floater {

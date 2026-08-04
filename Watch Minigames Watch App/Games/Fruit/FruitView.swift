@@ -31,9 +31,18 @@ final class FruitEngine {
     var basketX = 90.0
     var basketTarget = 90.0
     var basketVX = 0.0
+    struct Ripple {
+        var pos: Vec2
+        var at: Double
+        var gold: Bool
+    }
+
     var items: [Item] = []
     var score = 0
     var hearts = 3
+    /// Consecutive catches; every fifth pays a small bonus.
+    var streak = 0
+    var ripples: [Ripple] = []
     var time = 0.0
     var shakeAmp = 0.0
     var done = false
@@ -61,6 +70,7 @@ final class FruitEngine {
         shakeAmp *= exp(-7 * dt)
         updateParticles(dt)
         floaters.removeAll { time - $0.bornAt > 0.8 }
+        ripples.removeAll { time - $0.at > 0.55 }
         guard !done else { return }
 
         // Basket chase; velocity kept for a cartoon tilt in the renderer.
@@ -116,11 +126,24 @@ final class FruitEngine {
             return
         }
         score += 1
+        streak += 1
         lastCatchAt = time
-        spawnJuice(at: Vec2(item.pos.x, rimY - 6), kind: item.kind)
+        let splash = Vec2(item.pos.x, rimY - 6)
+        spawnJuice(at: splash, kind: item.kind)
+        ripples.append(Ripple(pos: Vec2(item.pos.x, rimY - 2), at: time, gold: false))
         floaters.append(Floater(pos: Vec2(item.pos.x, rimY - 18), text: "+1",
                                 bornAt: time, color: Palette.ink))
-        Haptics.play(.click, minInterval: 0)
+        // Every fifth clean catch pays a small streak bonus.
+        if streak.isMultiple(of: 5) {
+            score += 2
+            ripples.append(Ripple(pos: Vec2(item.pos.x, rimY - 4), at: time, gold: true))
+            floaters.append(Floater(pos: Vec2(item.pos.x, rimY - 32), text: "+2",
+                                    bornAt: time, color: Palette.goldDeep))
+            spawnGoldBurst(at: splash)
+            Haptics.play(.success, minInterval: 0)
+        } else {
+            Haptics.play(.click, minInterval: 0)
+        }
     }
 
     private func missed(_ item: Item) {
@@ -131,6 +154,7 @@ final class FruitEngine {
 
     private func loseHeart(at p: Vec2, boom: Bool) {
         hearts -= 1
+        streak = 0
         lastOuchAt = time
         shakeAmp = boom ? 5 : 3
         if boom { spawnBoom(at: p) }
@@ -148,7 +172,9 @@ final class FruitEngine {
         items.removeAll()
         particles.removeAll()
         floaters.removeAll()
+        ripples.removeAll()
         score = 0
+        streak = 0
         hearts = 3
         shakeAmp = 0
         done = false
@@ -186,6 +212,18 @@ final class FruitEngine {
         }
     }
 
+    private func spawnGoldBurst(at p: Vec2) {
+        for k in 0..<10 {
+            let a = Double(k) / 10 * 2 * .pi
+            let life = Double.random(in: 0.35...0.6)
+            particles.append(Particle(
+                pos: p, vel: Vec2(cos(a), sin(a) * 0.8 - 0.5) * Double.random(in: 50...110),
+                life: life, maxLife: life,
+                size: Double.random(in: 1.6...2.8),
+                hue: k % 3 == 2 ? .white : .gold))
+        }
+    }
+
     private func spawnBoom(at p: Vec2) {
         for k in 0..<12 {
             let a = Double.random(in: 0..<(2 * .pi))
@@ -214,7 +252,11 @@ struct FruitView: View {
         GeometryReader { geo in
             ZStack {
                 TimelineView(.animation) { timeline in
-                    canvasView(size: geo.size, date: timeline.date)
+                    // Rebuilt every frame, so the badge tracks the engine.
+                    ZStack(alignment: .topTrailing) {
+                        canvasView(size: geo.size, date: timeline.date)
+                        scoreBadge
+                    }
                 }
                 if let score = finalScore {
                     ResultCard(title: "Caught \(score)",
@@ -242,6 +284,27 @@ struct FruitView: View {
                 withAnimation(.easeOut(duration: 0.3)) { finalScore = score }
             }
         }
+    }
+
+    /// Glass score chip with five streak pips ticking toward the next bonus.
+    private var scoreBadge: some View {
+        VStack(alignment: .trailing, spacing: 4) {
+            ScoreChip(score: engine.score,
+                      flash: max(0, 1 - (engine.time - engine.lastCatchAt) / 0.35))
+            HStack(spacing: 3) {
+                ForEach(0..<5, id: \.self) { i in
+                    Circle()
+                        .fill(i < engine.streak % 5 ? Palette.gold
+                              : Palette.ink.opacity(0.15))
+                        .overlay(Circle().stroke(Palette.ink.opacity(0.3), lineWidth: 0.6))
+                        .frame(width: 4.5, height: 4.5)
+                }
+            }
+            .padding(.trailing, 6)
+        }
+        .padding(.top, 42)
+        .padding(.trailing, 8)
+        .allowsHitTesting(false)
     }
 
     private func canvasView(size: CGSize, date: Date) -> some View {
@@ -287,10 +350,20 @@ struct FruitRenderer {
         ctx.fill(Path(CGRect(origin: .zero, size: size)), with: .color(Palette.bg))
         drawWallpaperDots(ctx, size: size)
 
-        // Grass shelf the basket slides along.
+        // Wooden floor the basket slides along (same boards as the stacker's
+        // living room, so the indoor scenes match).
         let groundY = size.height - 14
         ctx.fill(Path(CGRect(x: 0, y: groundY, width: size.width, height: 16)),
-                 with: .color(Palette.fairway))
+                 with: .color(Palette.sand))
+        var boards = Path()
+        var bx = 20.0
+        while bx < size.width {
+            boards.move(to: CGPoint(x: bx, y: groundY + 6))
+            boards.addLine(to: CGPoint(x: bx + 8, y: groundY + 6))
+            bx += 42
+        }
+        ctx.stroke(boards, with: .color(Palette.sandDark.opacity(0.8)),
+                   style: StrokeStyle(lineWidth: 1.4))
         ctx.stroke(Path(CGRect(x: -2, y: groundY, width: size.width + 4, height: 3)),
                    with: .color(Palette.ink), style: StrokeStyle(lineWidth: 1.4))
 
@@ -299,6 +372,7 @@ struct FruitRenderer {
 
         for item in engine.items { drawItem(ctx, item) }
         drawBasket(ctx)
+        drawRipples(ctx)
         drawArcadeParticles(ctx, engine.particles)
         drawFloaters(ctx, engine.floaters, time: time)
         drawOuchVignette(ctx)
@@ -307,11 +381,7 @@ struct FruitRenderer {
     // MARK: HUD
 
     private func drawHUD(_ ctx: GraphicsContext) {
-        let flash = max(0, 1 - (time - engine.lastCatchAt) / 0.4)
-        ctx.draw(Text("\(engine.score)")
-            .font(.system(size: 40 * (1 + flash * 0.2), weight: .heavy, design: .rounded))
-            .foregroundStyle(Palette.boostBlueDeep.opacity(0.35 + flash * 0.4)),
-                 at: CGPoint(x: size.width - 30, y: 62))
+        // The score lives in the glass chip above the canvas.
         for i in 0..<3 {
             let filled = i < engine.hearts
             let ouch = max(0, 1 - (time - engine.lastOuchAt) / 0.4)
@@ -320,6 +390,22 @@ struct FruitRenderer {
                 .font(.system(size: 11, weight: .semibold))
                 .foregroundStyle(filled ? Palette.bumperCoral : Palette.ink.opacity(0.25)),
                      at: CGPoint(x: 16 + Double(i) * 14 + wobble, y: 58))
+        }
+    }
+
+    /// Splash rings blooming from the rim on each catch — gold and wider on
+    /// a streak bonus.
+    private func drawRipples(_ ctx: GraphicsContext) {
+        for ripple in engine.ripples {
+            let t = (time - ripple.at) / 0.5
+            guard t >= 0, t < 1 else { continue }
+            let e = 1 - pow(1 - t, 2)
+            let reach = ripple.gold ? 26.0 : 14.0
+            let r = 4 + e * reach
+            ctx.stroke(arcadeEllipse(at: ripple.pos.cg, rx: r, ry: r * 0.55),
+                       with: .color((ripple.gold ? Palette.gold : Palette.ink)
+                           .opacity((ripple.gold ? 0.6 : 0.3) * (1 - t))),
+                       style: StrokeStyle(lineWidth: 1.6 * (1 - t) + 0.4))
         }
     }
 

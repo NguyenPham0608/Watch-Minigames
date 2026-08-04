@@ -17,7 +17,8 @@ final class StackerEngine {
     // MARK: Objects
 
     enum ObjectKind: Int, CaseIterable {
-        case box, book, tv, radio, toaster, mug, plant, clock, lamp
+        case box, book, books, tv, radio, toaster, mug, clock, lamp,
+             bottle, sofa, camera, dumbbell
     }
 
     struct Spec {
@@ -31,15 +32,19 @@ final class StackerEngine {
 
     static func spec(for kind: ObjectKind, colorIndex: Int) -> Spec {
         switch kind {
-        case .box:     return Spec(kind: kind, w: 44, h: 32, bottomW: 44, topW: 44, colorIndex: colorIndex)
-        case .book:    return Spec(kind: kind, w: 48, h: 11, bottomW: 48, topW: 48, colorIndex: colorIndex)
-        case .tv:      return Spec(kind: kind, w: 50, h: 36, bottomW: 46, topW: 44, colorIndex: colorIndex)
-        case .radio:   return Spec(kind: kind, w: 40, h: 23, bottomW: 40, topW: 38, colorIndex: colorIndex)
-        case .toaster: return Spec(kind: kind, w: 36, h: 21, bottomW: 34, topW: 28, colorIndex: colorIndex)
-        case .mug:     return Spec(kind: kind, w: 24, h: 19, bottomW: 18, topW: 19, colorIndex: colorIndex)
-        case .plant:   return Spec(kind: kind, w: 34, h: 34, bottomW: 20, topW: 21, colorIndex: colorIndex)
-        case .clock:   return Spec(kind: kind, w: 26, h: 27, bottomW: 20, topW: 10, colorIndex: colorIndex)
-        case .lamp:    return Spec(kind: kind, w: 28, h: 38, bottomW: 24, topW: 15, colorIndex: colorIndex)
+        case .box:      return Spec(kind: kind, w: 44, h: 32, bottomW: 44, topW: 44, colorIndex: colorIndex)
+        case .book:     return Spec(kind: kind, w: 48, h: 11, bottomW: 48, topW: 48, colorIndex: colorIndex)
+        case .books:    return Spec(kind: kind, w: 42, h: 22, bottomW: 42, topW: 36, colorIndex: colorIndex)
+        case .tv:       return Spec(kind: kind, w: 50, h: 36, bottomW: 46, topW: 44, colorIndex: colorIndex)
+        case .radio:    return Spec(kind: kind, w: 40, h: 23, bottomW: 40, topW: 38, colorIndex: colorIndex)
+        case .toaster:  return Spec(kind: kind, w: 36, h: 21, bottomW: 34, topW: 28, colorIndex: colorIndex)
+        case .mug:      return Spec(kind: kind, w: 24, h: 19, bottomW: 18, topW: 19, colorIndex: colorIndex)
+        case .clock:    return Spec(kind: kind, w: 26, h: 27, bottomW: 20, topW: 10, colorIndex: colorIndex)
+        case .lamp:     return Spec(kind: kind, w: 28, h: 38, bottomW: 24, topW: 15, colorIndex: colorIndex)
+        case .bottle:   return Spec(kind: kind, w: 16, h: 30, bottomW: 13, topW: 9, colorIndex: colorIndex)
+        case .sofa:     return Spec(kind: kind, w: 56, h: 27, bottomW: 52, topW: 48, colorIndex: colorIndex)
+        case .camera:   return Spec(kind: kind, w: 31, h: 20, bottomW: 27, topW: 16, colorIndex: colorIndex)
+        case .dumbbell: return Spec(kind: kind, w: 40, h: 15, bottomW: 36, topW: 30, colorIndex: colorIndex)
         }
     }
 
@@ -78,6 +83,8 @@ final class StackerEngine {
     var phase: Phase = .swaying(spec: StackerEngine.randomSpec(), since: 0)
     var stack: [Placed] = []
     var freeBodies: [FreeBody] = []
+    /// Pieces that missed the tower outright and now rest on the floor.
+    var groundPieces: [Placed] = []
     var score = 0
     var time = 0.0
     var shakeAmp = 0.0
@@ -134,9 +141,17 @@ final class StackerEngine {
         case .falling(let spec, let x, let bottomY, let vy):
             let newVy = vy + 950 * dt
             let newBottom = bottomY + newVy * dt
-            let surface = towerTopY
+            // A piece that isn't over the tower at all sails straight past
+            // it to the floor; only pieces that touch the support can land
+            // or tip off it.
+            let surface = (stack.isEmpty || towerOverlap(spec: spec, x: x) > 0)
+                ? towerTopY : floorY
             if newBottom >= surface {
-                land(spec: spec, x: x, bottomY: surface)
+                if surface == floorY, !stack.isEmpty {
+                    missLand(spec: spec, x: x)
+                } else {
+                    land(spec: spec, x: x, bottomY: surface)
+                }
             } else {
                 phase = .falling(spec: spec, x: x, bottomY: newBottom, vy: newVy)
             }
@@ -166,6 +181,25 @@ final class StackerEngine {
         let x = swayX(spec: spec, since: since)
         phase = .falling(spec: spec, x: x, bottomY: swayScreenY - cameraOffset + spec.h, vy: 40)
         Haptics.play(.click, minInterval: 0)
+    }
+
+    /// Horizontal overlap between a falling piece's base and the top of the
+    /// tower. Zero or negative means a clean miss.
+    private func towerOverlap(spec: Spec, x: Double) -> Double {
+        guard let top = stack.last else { return spec.bottomW }
+        let l = max(x - spec.bottomW / 2, top.x - top.spec.topW / 2)
+        let r = min(x + spec.bottomW / 2, top.x + top.spec.topW / 2)
+        return r - l
+    }
+
+    /// A clean miss: the piece thuds flat onto the floor beside the tower.
+    private func missLand(spec: Spec, x: Double) {
+        groundPieces.append(Placed(spec: spec, x: x, bottomY: floorY,
+                                   patchL: x - spec.bottomW / 2,
+                                   patchR: x + spec.bottomW / 2))
+        spawnDust(at: Vec2(x, floorY), width: spec.bottomW)
+        shakeAmp = max(shakeAmp, 2.5)
+        gameOver()
     }
 
     private func land(spec: Spec, x: Double, bottomY: Double) {
@@ -289,6 +323,7 @@ final class StackerEngine {
     func reset() {
         stack.removeAll()
         freeBodies.removeAll()
+        groundPieces.removeAll()
         particles.removeAll()
         score = 0
         wobbleAmp = 0
