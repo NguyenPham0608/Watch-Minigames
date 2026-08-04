@@ -24,17 +24,6 @@ enum GameEvent {
     case coin(total: Int)
 }
 
-struct Particle {
-    var pos: Vec2
-    var vel: Vec2
-    var life: Double
-    var maxLife: Double
-    var size: Double
-    var hue: ParticleHue
-
-    enum ParticleHue { case gold, shard, grass, white, confetti(Int) }
-}
-
 final class GameEngine {
 
     // MARK: Static config
