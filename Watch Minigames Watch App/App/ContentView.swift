@@ -9,16 +9,33 @@
 import SwiftUI
 
 struct ContentView: View {
+    @State private var page = 0
+    @State private var crown = 0.0
+
     var body: some View {
         NavigationStack {
-            TabView {
-                GolfHome()
-                PongHome()
-                StackerHome()
-                BricksHome()
-                EchoHome()
-                FruitHome()
-                Game2048Home()
+            TabView(selection: $page) {
+                GolfHome().tag(0)
+                PongHome().tag(1)
+                StackerHome().tag(2)
+                BricksHome().tag(3)
+                EchoHome().tag(4)
+                FruitHome().tag(5)
+                Game2048Home().tag(6)
+            }
+            .focusable()
+            .digitalCrownRotation($crown, from: 0, through: 6, by: 1,
+                                  sensitivity: .low, isContinuous: false,
+                                  isHapticFeedbackEnabled: true)
+            .onChange(of: crown) { _, value in
+                let target = Int(value.rounded())
+                if target != page {
+                    withAnimation(.easeInOut(duration: 0.25)) { page = target }
+                }
+            }
+            .onChange(of: page) { _, value in
+                // After a swipe, restart the crown from the settled page.
+                if Int(crown.rounded()) != value { crown = Double(value) }
             }
         }
     }

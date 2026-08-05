@@ -19,14 +19,7 @@ struct Game2048View: View {
         GeometryReader { geo in
             ZStack {
                 TimelineView(.animation) { timeline in
-                    ZStack(alignment: .topTrailing) {
-                        canvasView(size: geo.size, date: timeline.date)
-                        ScoreChip(score: engine.score,
-                                  flash: max(0, 1 - (engine.time - engine.lastMergeAt) / 0.35))
-                            .padding(.top, 42)
-                            .padding(.trailing, 8)
-                            .allowsHitTesting(false)
-                    }
+                    canvasView(size: geo.size, date: timeline.date)
                 }
                 if let score = finalScore {
                     ResultCard(title: "Score \(score)",
@@ -118,13 +111,25 @@ struct Game2048Renderer {
         ctx.fill(Path(CGRect(origin: .zero, size: size)), with: .color(Palette.bg))
         drawWallpaperDots(ctx, size: size)
         drawClockScrim(ctx, size: size)
+        drawScore(ctx)
 
         let l = engine.layout()
 
+        var g = ctx
+        // Fresh boards pop in: a beat of fade with a springy settle.
+        let intro = min((time - engine.introAt) / 0.45, 1)
+        if intro < 1 {
+            let e = easeOutBack(intro, 1.2)
+            let cx = l.ox + l.board / 2
+            let cy = l.oy + l.board / 2
+            g.opacity = min(intro / 0.25, 1)
+            g.translateBy(x: cx, y: cy)
+            g.scaleBy(x: 0.88 + 0.12 * e, y: 0.88 + 0.12 * e)
+            g.translateBy(x: -cx, y: -cy)
+        }
         // Whole board (slab + tiles) nudges in the swipe direction on a slam.
         let nt = 1 - decay(engine.nudgeAt, 0.16)
         let nudge = decay(engine.nudgeAt, 0.16) * sin(min(nt, 1) * .pi)
-        var g = ctx
         g.translateBy(x: engine.nudgeDir.x * 3 * nudge,
                       y: engine.nudgeDir.y * 3 * nudge)
 
@@ -133,13 +138,37 @@ struct Game2048Renderer {
         for tile in engine.tiles where tile.dying { drawTile(g, tile, l) }
         for tile in engine.tiles where !tile.dying { drawTile(g, tile, l) }
 
+        // A nearly full board breathes a soft coral warning at the edges.
+        let live = engine.tiles.filter { !$0.dying }.count
+        if live >= 15, !engine.done {
+            ctx.fill(Path(CGRect(origin: .zero, size: size)), with: .radialGradient(
+                Gradient(colors: [.clear, Palette.bumperCoral.opacity(0.15 + 0.06 * sin(time * 3.2))]),
+                center: CGPoint(x: size.width / 2, y: size.height / 2),
+                startRadius: size.width * 0.42, endRadius: size.height * 0.72))
+        }
+
         drawArcadeParticles(ctx, engine.particles)
         drawFloaters(ctx, engine.floaters, time: time)
 
         if engine.done {
+            let fade = min((time - engine.doneAt) / 0.35, 1)
             ctx.fill(Path(CGRect(origin: .zero, size: size)),
-                     with: .color(Palette.ink.opacity(0.18)))
+                     with: .color(Palette.ink.opacity(0.18 * fade)))
         }
+    }
+
+    /// Plain ink score under the clock — pops and warms gold on a merge.
+    private func drawScore(_ ctx: GraphicsContext) {
+        let flash = decay(engine.lastMergeAt, 0.35)
+        let fontSize: Double = 20 * (1 + flash * 0.12)
+        let color: Color = flash > 0
+            ? Palette.goldDeep.opacity(0.6 + 0.4 * flash)
+            : Palette.ink.opacity(0.6)
+        let label = Text("\(engine.score)")
+            .font(.system(size: fontSize, weight: .heavy, design: .rounded))
+            .monospacedDigit()
+            .foregroundStyle(color)
+        ctx.draw(label, at: CGPoint(x: size.width - 12, y: 52), anchor: .trailing)
     }
 
     private func drawSlab(_ ctx: GraphicsContext, _ l: Game2048Engine.Layout) {
@@ -171,26 +200,39 @@ struct Game2048Renderer {
         let rowD = Double(tile.fromRow) + (Double(tile.row) - Double(tile.fromRow)) * e
         let rect = l.rect(colD, rowD)
 
-        // Spawn pop-in and merge pop.
+        // Spawn pop-in (with a fade so tiny scales never look glitchy) and
+        // merge pop.
         var scale = 1.0
-        if time - tile.spawnedAt < 0.18 {
-            scale = easeOutBack((time - tile.spawnedAt) / 0.18, 1.7)
-        }
+        let born = time - tile.spawnedAt
+        if born < 0.18 { scale = easeOutBack(born / 0.18, 1.7) }
         let merge = decay(tile.mergedAt, 0.22)
         if merge > 0 { scale += 0.24 * sin((1 - merge) * .pi) }
         guard scale > 0.02 else { return }
 
         var g = ctx
+        if born < 0.12 { g.opacity *= max(born / 0.12, 0) }
         g.translateBy(x: rect.midX, y: rect.midY)
         g.scaleBy(x: scale, y: scale)
         g.translateBy(x: -rect.midX, y: -rect.midY)
 
         let (fill, text) = Self.style(for: tile.value)
         let shape = Path(roundedRect: rect, cornerRadius: l.cell * 0.2)
+
+        // Big merges bloom a brief gold aura behind the tile.
+        if merge > 0, tile.value >= 128 {
+            g.fill(Path(ellipseIn: rect.insetBy(dx: -l.cell * 0.35, dy: -l.cell * 0.35)),
+                   with: .radialGradient(
+                       Gradient(colors: [Palette.gold.opacity(0.45 * merge), .clear]),
+                       center: CGPoint(x: rect.midX, y: rect.midY),
+                       startRadius: l.cell * 0.2, endRadius: l.cell * 0.85))
+        }
+
         var sh = g
         sh.translateBy(x: 0.8, y: 1.6)
         sh.fill(shape, with: .color(Palette.shadow))
         g.fill(shape, with: .color(fill))
+        // White flash right as a merge lands, fading as the pop settles.
+        if merge > 0 { g.fill(shape, with: .color(.white.opacity(0.4 * merge))) }
         // The 2048 tile earns a gold halo.
         if tile.value >= 2048 {
             g.stroke(Path(roundedRect: rect.insetBy(dx: -2.2, dy: -2.2),

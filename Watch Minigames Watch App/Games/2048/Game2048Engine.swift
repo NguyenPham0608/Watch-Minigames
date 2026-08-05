@@ -69,10 +69,13 @@ final class Game2048Engine {
     var shakeAmp = 0.0
     var particles: [Particle] = []
     var floaters: [Floater] = []
-    /// Timing for juice: chip flashes and the board slam nudge.
+    /// Timing for juice: chip flashes, the board slam nudge, the board's
+    /// pop-in and the game-over scrim fade.
     var lastMergeAt = -10.0
     var nudgeAt = -10.0
     var nudgeDir = Vec2.zero
+    var introAt = 0.0
+    var doneAt = -10.0
     var onGameOver: ((Int) -> Void)?
 
     private var nextID = 1
@@ -89,9 +92,9 @@ final class Game2048Engine {
     }
 
     func layout() -> Layout {
-        // Top margin clears the clock and the glass score chip so the
-        // top corner tiles never hide beneath them.
-        let side = 10.0, top = 70.0, bottom = 12.0
+        // Top margin clears the clock and the inked score number so the
+        // top corner tiles never sit beneath them.
+        let side = 10.0, top = 66.0, bottom = 12.0
         let board = min(courtW - side * 2, courtH - top - bottom)
         let gap = board * 0.03
         return Layout(board: board,
@@ -264,6 +267,7 @@ final class Game2048Engine {
 
         if isStuck() {
             done = true
+            doneAt = time
             Haptics.play(.failure, minInterval: 0)
             let final = score
             let cb = onGameOver
@@ -317,6 +321,8 @@ final class Game2048Engine {
         pendingSpawn = nil
         pendingSwipe = nil
         shakeAmp = 0
+        introAt = time
+        doneAt = -10
         spawnRandomTile()
         spawnRandomTile()
     }
