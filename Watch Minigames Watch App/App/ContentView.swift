@@ -18,6 +18,7 @@ struct ContentView: View {
                 BricksHome()
                 EchoHome()
                 FruitHome()
+                Game2048Home()
             }
         }
     }

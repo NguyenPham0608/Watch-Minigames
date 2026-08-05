@@ -114,8 +114,12 @@ struct GameView: View {
             isBest = store.recordHole(hole, strokes: strokes)
         }
         if isRound { roundStrokes.append(strokes) }
-        withAnimation(.easeOut(duration: 0.3)) {
-            result = HoleResult(strokes: strokes, par: hole.par, isBestHole: isBest)
+        // Let the confetti and the scoreline popup breathe before the card.
+        let pending = HoleResult(strokes: strokes, par: hole.par, isBestHole: isBest)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+            withAnimation(.easeOut(duration: 0.3)) {
+                result = pending
+            }
         }
     }
 

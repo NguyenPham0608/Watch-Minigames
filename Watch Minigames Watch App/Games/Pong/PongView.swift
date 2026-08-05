@@ -209,14 +209,14 @@ struct PongRenderer {
     private func drawDivider(_ ctx: GraphicsContext) {
         let cx = size.width / 2
         var divider = Path()
-        divider.move(to: CGPoint(x: cx, y: 8))
-        divider.addLine(to: CGPoint(x: cx, y: size.height - 8))
-        ctx.stroke(divider, with: .color(Palette.ink.opacity(0.16)),
-                   style: StrokeStyle(lineWidth: 1.6, dash: [5, 6]))
+        divider.move(to: CGPoint(x: cx, y: 0))
+        divider.addLine(to: CGPoint(x: cx, y: size.height))
+        ctx.stroke(divider, with: .color(Palette.ink.opacity(0.18)),
+                   style: StrokeStyle(lineWidth: 2))
         let mid = CGPoint(x: cx, y: size.height / 2)
-        ctx.stroke(ellipse(at: mid, r: 17), with: .color(Palette.ink.opacity(0.16)),
-                   style: StrokeStyle(lineWidth: 1.6))
-        ctx.fill(ellipse(at: mid, r: 2.2), with: .color(Palette.ink.opacity(0.2)))
+        ctx.stroke(ellipse(at: mid, r: 17), with: .color(Palette.ink.opacity(0.18)),
+                   style: StrokeStyle(lineWidth: 2))
+        ctx.fill(ellipse(at: mid, r: 2.2), with: .color(Palette.ink.opacity(0.22)))
     }
 
     private func drawScore(_ ctx: GraphicsContext) {
@@ -349,13 +349,15 @@ struct PongRenderer {
     private func drawOrb(_ ctx: GraphicsContext) {
         guard let o = engine.orb else { return }
         let age = time - o.born
-        var fade = min(1, min(age / 0.25, (9 - age) / 0.4))
+        let life = PongEngine.orbLife
+        let fade = min(1, min(age / 0.2, (life - age) / 0.3))
         guard fade > 0 else { return }
-        // Urgency blink in the final seconds.
-        if age > 7 { fade *= 0.65 + 0.35 * sin(time * 10) }
-        let bob = sin(time * 2.4) * 2
-        let c = CGPoint(x: origin.x + o.pos.x, y: origin.y + o.pos.y + bob)
-        let r = 8.0 * (0.6 + 0.4 * min(1, age / 0.25))   // pops in
+        // Pop-in overshoots slightly, then settles.
+        let pop = min(1, age / 0.25)
+        let r = 8.0 * (0.6 + 0.4 * pop + 0.12 * sin(pop * .pi))
+        let bob = sin(time * 2.2) * 1.8
+        let rest = CGPoint(x: origin.x + o.pos.x, y: origin.y + o.pos.y)
+        let c = CGPoint(x: rest.x, y: rest.y + bob)
         let (main, deep): (Color, Color) = o.kind == .bolt
             ? (Palette.gold, Palette.goldDeep)
             : (Palette.boostBlue, Palette.boostBlueDeep)
@@ -363,42 +365,41 @@ struct PongRenderer {
         var g = ctx
         g.opacity = fade
 
-        // Ground shadow.
-        g.fill(ellipse(at: CGPoint(x: c.x, y: c.y + 7 - bob), rx: 6.5, ry: 2.4),
+        // Ground shadow, tightening as the token bobs up.
+        g.fill(ellipse(at: CGPoint(x: rest.x, y: rest.y + 8), rx: 5.5 - bob * 0.5, ry: 2.1),
                with: .color(Palette.shadow))
 
-        // Soft radial aura.
-        g.fill(ellipse(at: c, r: r * 2.3), with: .radialGradient(
-            Gradient(colors: [main.opacity(0.32), .clear]),
-            center: c, startRadius: r * 0.4, endRadius: r * 2.3))
-
-        // Spinning containment ring with two orbiting sparks.
-        let ringR = r + 4.5
-        g.stroke(ellipse(at: c, r: ringR), with: .color(main.opacity(0.85)),
-                 style: StrokeStyle(lineWidth: 1.4, dash: [4.5, 3.5], dashPhase: time * 14))
-        for k in 0..<2 {
-            let a = time * 2.6 + Double(k) * .pi
-            let sp = CGPoint(x: c.x + cos(a) * ringR, y: c.y + sin(a) * ringR * 0.94)
-            g.fill(ellipse(at: sp, r: 3.0), with: .color(.white.opacity(0.3)))
-            g.fill(ellipse(at: sp, r: 1.6), with: .color(.white))
+        // Countdown arc drains around the token; a soft pulse near expiry
+        // stands in for the old blink.
+        let remain = 1 - age / life
+        if remain > 0.02 {
+            let urgency = age > life - 2.5 ? 0.15 * sin(time * 7) : 0
+            var arc = Path()
+            arc.addArc(center: c, radius: r + 3.4,
+                       startAngle: .degrees(-90),
+                       endAngle: .degrees(-90 + 360 * remain),
+                       clockwise: false)
+            g.stroke(arc, with: .color(deep.opacity(0.55 + urgency)),
+                     style: StrokeStyle(lineWidth: 1.8, lineCap: .round))
         }
 
-        // Gem body: radially lit disc with an ink rim and a glass gleam.
-        g.fill(ellipse(at: c, r: r), with: .radialGradient(
-            Gradient(colors: [main, deep]),
-            center: CGPoint(x: c.x - r * 0.35, y: c.y - r * 0.4),
-            startRadius: 0, endRadius: r * 1.9))
+        // Flat token: deep under-disc peeks out as a bottom-right crescent,
+        // like the golf coin's two-tone shading.
+        g.fill(ellipse(at: c, r: r), with: .color(deep))
+        g.fill(ellipse(at: CGPoint(x: c.x - r * 0.09, y: c.y - r * 0.13), r: r * 0.93),
+               with: .color(main))
         g.stroke(ellipse(at: c, r: r), with: .color(Palette.ink),
                  style: StrokeStyle(lineWidth: 1.5))
-        g.fill(ellipse(at: CGPoint(x: c.x - r * 0.32, y: c.y - r * 0.42),
-                       rx: r * 0.3, ry: r * 0.2),
-               with: .color(.white.opacity(0.55)))
+        g.fill(ellipse(at: CGPoint(x: c.x - r * 0.34, y: c.y - r * 0.44),
+                       rx: r * 0.26, ry: r * 0.17),
+               with: .color(.white.opacity(0.5)))
 
-        // Crisp symbol instead of hand-drawn strokes.
-        g.draw(Text(Image(systemName: o.kind == .bolt ? "bolt.fill" : "arrow.up.and.down"))
+        // Symbol with a hairline drop for legibility on the bright fill.
+        let symbol = Text(Image(systemName: o.kind == .bolt ? "bolt.fill" : "arrow.up.and.down"))
             .font(.system(size: 9.5, weight: .bold))
-            .foregroundStyle(.white),
-               at: CGPoint(x: c.x, y: c.y + 0.5))
+        g.draw(symbol.foregroundStyle(Palette.ink.opacity(0.35)),
+               at: CGPoint(x: c.x, y: c.y + 1.2))
+        g.draw(symbol.foregroundStyle(.white), at: CGPoint(x: c.x, y: c.y + 0.5))
     }
 
     private func drawParticles(_ ctx: GraphicsContext) {

@@ -29,6 +29,8 @@ final class PongEngine {
     static let paddleInset = 12.0
     static let winScore = 5
     static let playerChargeMax = 3
+    /// Seconds an uncollected orb stays on court.
+    static let orbLife = 9.0
 
     /// 0 easy, 1 medium, 2 hard.
     var difficulty = 2
@@ -326,7 +328,7 @@ final class PongEngine {
 
     private func updateOrb() {
         if let o = orb {
-            if time - o.born > 9 {
+            if time - o.born > Self.orbLife {
                 orb = nil
                 nextOrbAt = time + Double.random(in: 4...7)
             } else if o.pos.distance(to: ballPos) < 9 + Self.ballR {

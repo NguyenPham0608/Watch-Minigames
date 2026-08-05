@@ -8,6 +8,7 @@
 
 import Foundation
 import CoreGraphics
+import SwiftUI
 import WatchKit
 
 enum BallState: Equatable {
@@ -76,7 +77,14 @@ final class GameEngine {
     var bumperFlash: [UUID: Double] = [:]
     var barrierFlash: [UUID: Double] = [:]
     var particles: [Particle] = []
+    var floaters: [Floater] = []
     var time: Double = 0
+
+    /// Screen shake kicked by hard impacts, decayed every frame.
+    var shakeAmp = 0.0
+    /// Last solid contact, for the ball's impact squash.
+    var lastHitAt = -10.0
+    var lastHitNormal = Vec2(0, -1)
 
     /// 0..1 shrink factor while sinking.
     var ballDrawScale = 1.0
@@ -208,6 +216,8 @@ final class GameEngine {
         lastDate = date
         dt = max(0, min(dt, 1.0 / 20.0))
         time += dt
+        shakeAmp *= exp(-7 * dt)
+        floaters.removeAll { time - $0.bornAt > 0.95 }
 
         updateIntro()
         updateTeleport()
@@ -282,6 +292,9 @@ final class GameEngine {
             state = .done
             ballDrawScale = 0
             spawnConfetti(at: hole.cup)
+            floaters.append(Floater(
+                pos: hole.cup + Vec2(0, -20), text: sinkTitle, bornAt: time,
+                color: strokes <= hole.par ? Palette.goldDeep : Palette.wallTop))
             Haptics.play(.success, minInterval: 0)
             let s = strokes
             let cb = onEvent
@@ -365,6 +378,9 @@ final class GameEngine {
             if into > 0 {
                 ballVel -= outward * into * 1.78
                 maxImpact = max(maxImpact, into)
+                registerHit(normal: -outward,
+                            contact: ballPos + outward * Self.ballRadius,
+                            impact: into)
             }
         }
 
@@ -388,6 +404,7 @@ final class GameEngine {
                 if approach > 155 {
                     brokenBarriers.insert(barrier.id)
                     ballVel = ballVel * 0.72
+                    shakeAmp = max(shakeAmp, 3)
                     spawnShards(at: closest, along: (barrier.b - barrier.a).normalized)
                     Haptics.play(.retry, minInterval: 0)
                 } else {
@@ -420,6 +437,9 @@ final class GameEngine {
                     ballVel += normal * 85
                     if ballVel.length > 520 { ballVel = ballVel.normalized * 520 }
                     bumperFlash[bumper.id] = time
+                    lastHitAt = time
+                    lastHitNormal = normal
+                    shakeAmp = max(shakeAmp, 1.6)
                     Haptics.play(.directionUp, minInterval: 0.09)
                     spawnPuff(at: bumper.pos + normal * bumper.r, color: .white)
                 }
@@ -478,6 +498,8 @@ final class GameEngine {
             if coin.pos.distance(to: ballPos) < coin.r + Self.ballRadius {
                 collectedCoins.insert(coin.id)
                 spawnSparkle(at: coin.pos)
+                floaters.append(Floater(pos: coin.pos + Vec2(0, -12), text: "+1",
+                                        bornAt: time, color: Palette.goldDeep))
                 Haptics.play(.click, minInterval: 0)
                 let total = collectedCoins.count
                 let cb = onEvent
@@ -504,7 +526,13 @@ final class GameEngine {
             break
         }
 
-        if maxImpact > 0 { Haptics.bounce(impactSpeed: maxImpact) }
+        if maxImpact > 0 {
+            Haptics.bounce(impactSpeed: maxImpact)
+            // Hard hits rattle the camera a little.
+            if maxImpact > 130 {
+                shakeAmp = max(shakeAmp, min(maxImpact / 110, 3.2))
+            }
+        }
 
         // -- Rest detection / wake-up
         if state == .rolling && ballVel.length < 7 {
@@ -535,6 +563,29 @@ final class GameEngine {
         spawnSparkle(at: hole.cup)
     }
 
+    /// The scoreline for the hole just played ("Birdie!", "Bogey"…).
+    var sinkTitle: String {
+        if strokes == 1 { return "Ace!" }
+        switch strokes - hole.par {
+        case ..<(-1): return "Eagle!"
+        case -1: return "Birdie!"
+        case 0: return "Par"
+        case 1: return "Bogey"
+        default: return "+\(strokes - hole.par)"
+        }
+    }
+
+    /// Records a solid contact: squash orientation, and a dust puff when the
+    /// ball really slams in.
+    private func registerHit(normal: Vec2, contact: Vec2, impact: Double) {
+        guard impact > 34 else { return }
+        lastHitAt = time
+        lastHitNormal = normal
+        if impact > 100 {
+            spawnPuff(at: contact, color: .shard)
+        }
+    }
+
     private func collideSegment(_ a: Vec2, _ b: Vec2, radius: Double,
                                 restitution: Double, impact: inout Double) {
         let closest = closestPointOnSegment(ballPos, a, b)
@@ -547,6 +598,7 @@ final class GameEngine {
         if into < 0 {
             ballVel -= normal * into * (1 + restitution)
             impact = max(impact, -into)
+            registerHit(normal: normal, contact: closest, impact: -into)
         }
     }
 
@@ -561,6 +613,7 @@ final class GameEngine {
         if into < 0 {
             ballVel -= normal * into * (1 + restitution)
             impact = max(impact, -into)
+            registerHit(normal: normal, contact: center + normal * r, impact: -into)
         }
     }
 

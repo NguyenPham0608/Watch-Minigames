@@ -51,7 +51,14 @@ struct CourseRenderer {
 
     // MARK: Full course
 
-    func draw(into ctx: GraphicsContext, engine: GameEngine?) {
+    func draw(into base: GraphicsContext, engine: GameEngine?) {
+        // Hard impacts rattle the whole view for a beat.
+        var ctx = base
+        if let engine, engine.shakeAmp > 0.15 {
+            ctx.translateBy(x: sin(time * 67) * engine.shakeAmp,
+                            y: cos(time * 53) * engine.shakeAmp * 0.6)
+        }
+
         // Flat background + a soft scrim up top so the system clock stays legible.
         ctx.fill(Path(CGRect(origin: .zero, size: proj.size)), with: .color(Palette.bg))
         ctx.fill(Path(CGRect(x: 0, y: 0, width: proj.size.width, height: 42)),
@@ -87,6 +94,16 @@ struct CourseRenderer {
         }
 
         drawCup(ctx)
+        // A pulsing golden welcome while a rolling ball closes in on the cup.
+        if let engine, engine.state == .rolling,
+           engine.ballPos.distance(to: hole.cup) < 32 {
+            let c = proj.point(hole.cup)
+            let pulse = (sin(time * 6) + 1) / 2
+            let r = proj.length(GameEngine.cupRadius, at: hole.cup) + 3 + pulse * 3
+            ctx.stroke(ellipse(at: c, rx: r, ry: r * 0.84),
+                       with: .color(Palette.gold.opacity(0.7 - pulse * 0.35)),
+                       style: StrokeStyle(lineWidth: 1.8))
+        }
 
         // --- Depth layering ---
         // A wall is a shaded flank standing at ground level with a white cap
@@ -198,6 +215,7 @@ struct CourseRenderer {
         if let engine {
             drawBallGhost(ctx, engine: engine)
             drawParticles(ctx, engine.particles)
+            drawFloaters(ctx, engine.floaters)
             drawAim(ctx, engine: engine)
         }
     }
@@ -814,8 +832,41 @@ struct CourseRenderer {
         guard r > 0.3 else { return }
         ctx.fill(ellipse(at: CGPoint(x: p.x, y: p.y + r * 0.55), rx: r * 1.0, ry: r * 0.45),
                  with: .color(Palette.shadow))
-        inkedEllipse(ctx, at: CGPoint(x: p.x, y: p.y - 1), rx: r, ry: r,
-                     fill: Palette.wallTop, ink: Self.inkLine)
+
+        // Squash against whatever it just hit; stretch along its motion.
+        let speed = engine.ballVel.length
+        let hit = max(0, 1 - (time - engine.lastHitAt) / 0.14)
+        var g = ctx
+        g.translateBy(x: p.x, y: p.y - 1)
+        if hit > 0.01 {
+            let n = engine.lastHitNormal
+            g.rotate(by: Angle(radians: atan2(n.y, n.x)))
+            let s = hit * 0.3
+            g.scaleBy(x: 1 - s, y: 1 + s * 0.65)
+        } else if speed > 60, engine.state == .rolling {
+            g.rotate(by: Angle(radians: atan2(engine.ballVel.y, engine.ballVel.x)))
+            let s = min(speed / 1500, 0.18)
+            g.scaleBy(x: 1 + s, y: 1 - s * 0.7)
+        }
+        inkedEllipse(g, at: .zero, rx: r, ry: r, fill: Palette.wallTop, ink: Self.inkLine)
+        g.fill(ellipse(at: CGPoint(x: -r * 0.3, y: -r * 0.35), rx: r * 0.26, ry: r * 0.2),
+               with: .color(.white.opacity(0.9)))
+    }
+
+    /// World-anchored score popups (coin pickups, the hole's scoreline).
+    func drawFloaters(_ ctx: GraphicsContext, _ floaters: [Floater]) {
+        for f in floaters {
+            let t = (time - f.bornAt) / 0.9
+            guard t >= 0, t < 1 else { continue }
+            let p = proj.point(f.pos)
+            let rise = 16 * (1 - pow(1 - t, 2))
+            let popIn = min(1, t * 7)
+            ctx.draw(Text(f.text)
+                .font(.system(size: 14 * (0.7 + 0.3 * popIn), weight: .heavy,
+                              design: .rounded))
+                .foregroundStyle(f.color.opacity((1 - t * t) * popIn)),
+                     at: CGPoint(x: p.x, y: p.y - rise))
+        }
     }
 
     // MARK: Aim preview & particles
