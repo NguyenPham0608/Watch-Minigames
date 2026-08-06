@@ -33,7 +33,7 @@ struct Game2048View: View {
         .onAppear {
             engine.onGameOver = { score in
                 wasBest = store.recordArcadeBest("2048", score)
-                withAnimation(.easeOut(duration: 0.3)) { finalScore = score }
+                withAnimation(.arcadePop) { finalScore = score }
             }
         }
     }

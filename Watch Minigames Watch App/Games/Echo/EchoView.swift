@@ -178,7 +178,7 @@ struct EchoView: View {
                 wasBest = store.recordArcadeBest("echo", score)
                 // Let the wrong-pad flash land before the card slides in.
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) {
-                    withAnimation(.easeOut(duration: 0.3)) { finalScore = score }
+                    withAnimation(.arcadePop) { finalScore = score }
                 }
                 // Freeze once every effect has faded; a replay within the
                 // window clears the card and voids the stale timer.
@@ -264,8 +264,11 @@ struct EchoRenderer {
 
         var g = ctx
         if lit > 0 {
-            // Pads breathe up slightly while they sing.
-            let s = 1 + 0.05 * lit
+            // Machine notes breathe up while they sing; player taps pop with
+            // a quick arc up and back down.
+            let tapAge = time - engine.tapFlash[i]
+            let s = 1 + (machineLit ? 0.05
+                         : 0.08 * sin(min(tapAge / 0.28, 1) * .pi))
             g.translateBy(x: rect.midX, y: rect.midY)
             g.scaleBy(x: s, y: s)
             g.translateBy(x: -rect.midX, y: -rect.midY)

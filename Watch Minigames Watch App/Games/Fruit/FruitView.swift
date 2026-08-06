@@ -272,14 +272,14 @@ struct FruitView: View {
                 // pips.
                 if hud.score > score {
                     chipFlash = 1
-                    withAnimation(.linear(duration: 0.35)) { chipFlash = 0 }
+                    withAnimation(.spring(response: 0.4, dampingFraction: 0.5)) { chipFlash = 0 }
                 }
                 score = hud.score
                 streak = hud.streak
             }
             engine.onGameOver = { score in
                 wasBest = store.recordArcadeBest("fruit", score)
-                withAnimation(.easeOut(duration: 0.3)) { finalScore = score }
+                withAnimation(.arcadePop) { finalScore = score }
                 // Freeze once every effect has faded; a replay within the
                 // window clears the card and voids the stale timer.
                 DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {

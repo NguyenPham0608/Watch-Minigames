@@ -35,7 +35,7 @@ struct PongView: View {
             engine.difficulty = store.pongDifficulty
             engine.onGameOver = { w in
                 if w == .player { store.recordPongWin() }
-                withAnimation(.easeOut(duration: 0.3)) { winner = w }
+                withAnimation(.arcadePop) { winner = w }
             }
         }
     }

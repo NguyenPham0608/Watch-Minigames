@@ -118,7 +118,7 @@ struct GolfView: View {
         // Let the confetti and the scoreline popup breathe before the card.
         let pending = HoleResult(strokes: strokes, par: hole.par, isBestHole: isBest)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
-            withAnimation(.easeOut(duration: 0.3)) {
+            withAnimation(.arcadePop) {
                 result = pending
             }
         }
@@ -133,7 +133,7 @@ struct GolfView: View {
         } else if isRound {
             let total = roundStrokes.reduce(0, +)
             roundWasBest = store.recordRound(total: total)
-            withAnimation { result = nil; showScorecard = true }
+            withAnimation(.arcadePop) { result = nil; showScorecard = true }
         } else {
             dismiss()
         }
@@ -227,7 +227,7 @@ struct GolfView: View {
                         .background(Capsule().fill(Palette.gold))
                         .overlay(Capsule().stroke(Palette.ink, lineWidth: 1.6))
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(BouncyButtonStyle())
                 .padding(.top, 6)
             }
             .foregroundStyle(Palette.ink)

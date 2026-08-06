@@ -26,7 +26,7 @@ struct GolfHome: View {
                     CapsuleActionLabel(text: store.customHoles.isEmpty ? "New Course" : "New",
                                        compact: true, whiteFill: true)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(BouncyButtonStyle())
 
                 if !store.customHoles.isEmpty {
                     NavigationLink {
@@ -34,7 +34,7 @@ struct GolfHome: View {
                     } label: {
                         CapsuleActionLabel(text: "My Courses", compact: true, whiteFill: true)
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(BouncyButtonStyle())
                 }
             }
         }

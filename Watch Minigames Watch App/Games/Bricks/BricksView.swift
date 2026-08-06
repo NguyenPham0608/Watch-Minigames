@@ -45,7 +45,7 @@ struct BricksView: View {
         .onAppear {
             engine.onGameOver = { score in
                 wasBest = store.recordArcadeBest("bricks", score)
-                withAnimation(.easeOut(duration: 0.3)) { finalScore = score }
+                withAnimation(.arcadePop) { finalScore = score }
             }
         }
     }
@@ -167,11 +167,18 @@ struct BricksRenderer {
     }
 
     private func drawPaddle(_ ctx: GraphicsContext) {
-        let bump = decay(engine.lastHitAt, 0.16, now: time)
+        let bump = decay(engine.paddleHitAt, 0.16, now: time)
         let rect = CGRect(x: engine.paddleX - BricksEngine.paddleW / 2,
                           y: engine.paddleY - BricksEngine.paddleH / 2 + bump * 2,
                           width: BricksEngine.paddleW, height: BricksEngine.paddleH)
-        drawArcadePaddle(ctx, rect: rect, fill: Palette.boostBlue, core: Palette.paddleCore,
+        // Cartoon squash on the return: wider and flatter, springing back.
+        var g = ctx
+        if bump > 0 {
+            g.translateBy(x: rect.midX, y: rect.midY)
+            g.scaleBy(x: 1 + bump * 0.10, y: 1 - bump * 0.16)
+            g.translateBy(x: -rect.midX, y: -rect.midY)
+        }
+        drawArcadePaddle(g, rect: rect, fill: Palette.boostBlue, core: Palette.paddleCore,
                          vertical: false, flash: bump, flashAlpha: 0.5)
     }
 

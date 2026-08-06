@@ -29,11 +29,11 @@ struct StackerView: View {
             engine.onScore = { s in
                 score = s
                 chipFlash = 1
-                withAnimation(.linear(duration: 0.35)) { chipFlash = 0 }
+                withAnimation(.spring(response: 0.4, dampingFraction: 0.5)) { chipFlash = 0 }
             }
             engine.onGameOver = { score in
                 wasBest = store.recordArcadeBest("stacker", score)
-                withAnimation(.easeOut(duration: 0.3)) { finalScore = score }
+                withAnimation(.arcadePop) { finalScore = score }
             }
         }
     }

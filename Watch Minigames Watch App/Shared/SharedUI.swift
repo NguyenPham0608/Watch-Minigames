@@ -35,13 +35,22 @@ struct GameHome<SceneContent: View, Destination: View, Accessory: View>: View {
             } label: {
                 CapsuleActionLabel(text: "Play")
             }
-            .buttonStyle(.plain)
+            .buttonStyle(BouncyButtonStyle())
 
             accessory()
         }
         .padding(.horizontal, 14)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Palette.bg.ignoresSafeArea())
+        .background {
+            // The same dotted paper the games play on, so the whole app
+            // reads as one sheet.
+            Canvas { ctx, size in
+                ctx.fill(Path(CGRect(origin: .zero, size: size)),
+                         with: .color(Palette.bg))
+                drawWallpaperDots(ctx, size: size)
+            }
+            .ignoresSafeArea()
+        }
     }
 }
 
@@ -82,6 +91,21 @@ struct LazyView<Content: View>: View {
     var body: some View { content() }
 }
 
+/// Press feedback for every arcade button: a quick squash that springs back.
+struct BouncyButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.9 : 1)
+            .animation(.spring(response: 0.28, dampingFraction: 0.55),
+                       value: configuration.isPressed)
+    }
+}
+
+extension Animation {
+    /// The house pop: cards and chips scale in with a springy overshoot.
+    static let arcadePop = Animation.spring(response: 0.38, dampingFraction: 0.62)
+}
+
 /// Circular icon button used on the result cards: gold when prominent,
 /// white otherwise, inked either way.
 struct OverlayCircleButton: View {
@@ -99,7 +123,7 @@ struct OverlayCircleButton: View {
                 .overlay(Circle().stroke(Palette.ink, lineWidth: 1.6))
                 .foregroundStyle(Palette.ink)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(BouncyButtonStyle())
     }
 }
 
@@ -141,7 +165,7 @@ struct ResultCard<Buttons: View>: View {
         .padding(.horizontal, horizontalPadding)
         .background(RoundedRectangle(cornerRadius: 16).fill(.white.opacity(0.95)))
         .overlay(RoundedRectangle(cornerRadius: 16).stroke(Palette.ink, lineWidth: 1.8))
-        .transition(.opacity.combined(with: .scale(scale: 0.9)))
+        .transition(.opacity.combined(with: .scale(scale: 0.85)))
     }
 }
 

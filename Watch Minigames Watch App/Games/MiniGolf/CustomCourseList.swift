@@ -65,7 +65,7 @@ struct CustomCourseList: View {
                 .background(RoundedRectangle(cornerRadius: 10).fill(.white.opacity(0.92)))
                 .overlay(RoundedRectangle(cornerRadius: 10).stroke(Palette.ink, lineWidth: 1.3))
             }
-            .buttonStyle(.plain)
+            .buttonStyle(BouncyButtonStyle())
 
             rowButton("pencil") { editing = hole }
             rowButton("trash") { deleting = hole }
@@ -81,7 +81,7 @@ struct CustomCourseList: View {
                 .overlay(Circle().stroke(Palette.ink, lineWidth: 1.3))
                 .foregroundStyle(Palette.ink)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(BouncyButtonStyle())
     }
 
     private func bestLine(_ hole: HoleDesign) -> String {

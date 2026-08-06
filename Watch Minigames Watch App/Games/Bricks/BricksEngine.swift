@@ -43,6 +43,8 @@ final class BricksEngine {
     var particles: [Particle] = []
     var floaters: [Floater] = []
     var lastHitAt = -10.0
+    /// Paddle returns only — the paddle squash shouldn't fire on brick hits.
+    var paddleHitAt = -10.0
     var lastLevelAt = -10.0
     var onGameOver: ((Int) -> Void)?
 
@@ -153,6 +155,7 @@ final class BricksEngine {
         ballVel = Vec2(cos(angle), sin(angle)) * speed
         ballPos.y = top - Self.ballR
         lastHitAt = time
+        paddleHitAt = time
         Haptics.play(.directionUp, minInterval: 0)
     }
 
