@@ -91,35 +91,61 @@ private struct PongScene: View {
                        style: StrokeStyle(lineWidth: 1.2, dash: [3, 4]))
             ctx.stroke(floor, with: .color(Palette.ink), style: StrokeStyle(lineWidth: 1.8))
 
-            // Rallying ball with a small trail.
-            let phase = (sin(t * 1.7) + 1) / 2
-            let bx = court.minX + 16 + (court.width - 32) * phase
-            let by = court.midY + sin(t * 3.4) * 14
-            for i in 1...4 {
-                let f = Double(i) / 5
-                let px = court.minX + 16 + (court.width - 32)
-                    * ((sin((t - Double(i) * 0.05) * 1.7) + 1) / 2)
-                let py = court.midY + sin((t - Double(i) * 0.05) * 3.4) * 14
-                ctx.fill(Path(ellipseIn: CGRect(x: px - 2.5 * (1 - f), y: py - 2.5 * (1 - f),
-                                                width: 5 * (1 - f), height: 5 * (1 - f))),
-                         with: .color(Palette.boostBlue.opacity(0.4 * (1 - f))))
+            // A real rally: triangle waves give straight-line travel with
+            // sharp reflections, so the ball genuinely meets the walls and
+            // each paddle face.
+            func tri(_ time: Double, _ period: Double) -> Double {
+                let ph = (time / period).truncatingRemainder(dividingBy: 1)
+                return ph < 0.5 ? ph * 2 : 2 - ph * 2
             }
-            let ballRect = CGRect(x: bx - 4, y: by - 4, width: 8, height: 8)
+            let leftX = court.minX + 13.5, rightX = court.maxX - 13.5
+            let topY = court.minY + 4.5, botY = court.maxY - 4.5
+            func ballAt(_ time: Double) -> CGPoint {
+                CGPoint(x: leftX + (rightX - leftX) * tri(time, 3.6),
+                        y: topY + (botY - topY) * tri(time + 0.35, 1.6))
+            }
+            let bp = ballAt(t)
+
+            // Squash against whatever it just hit.
+            let tx = tri(t, 3.6), ty = tri(t + 0.35, 1.6)
+            let sx = 1 - 0.22 * max(0, 1 - min(tx, 1 - tx) * 12)
+            let sy = 1 - 0.22 * max(0, 1 - min(ty, 1 - ty) * 12)
+            let ballRect = CGRect(x: bp.x - 4 * sx, y: bp.y - 4 * sy,
+                                  width: 8 * sx, height: 8 * sy)
             ctx.fill(Path(ellipseIn: ballRect), with: .color(Palette.wallTop))
             ctx.stroke(Path(ellipseIn: ballRect), with: .color(Palette.ink),
                        style: StrokeStyle(lineWidth: 1.4))
 
-            // Paddles tracking the ball.
-            func paddle(x: Double, y: Double, color: Color) {
-                let rect = CGRect(x: x - 2.5, y: y - 11, width: 5, height: 22)
+            // Paddles drift lazily when the ball is far and lock on as it
+            // arrives; a white flash marks each return.
+            func paddle(x: Double, y: Double, color: Color, flash: Double) {
+                // Clamped clear of the rounded corners so paddles never
+                // poke past the court outline.
+                let clamped = min(max(y, court.minY + 16), court.maxY - 16)
+                let rect = CGRect(x: x - 2.5, y: clamped - 11, width: 5, height: 22)
                 let p = Path(roundedRect: rect, cornerRadius: 2.5)
                 ctx.fill(p, with: .color(color))
+                if flash > 0 {
+                    ctx.fill(p, with: .color(.white.opacity(0.45 * flash)))
+                }
                 ctx.stroke(p, with: .color(Palette.ink), style: StrokeStyle(lineWidth: 1.3))
             }
-            paddle(x: court.minX + 8, y: court.midY + sin((t - 0.25) * 3.4) * 10,
-                   color: Palette.bumperCoral)
-            paddle(x: court.maxX - 8, y: court.midY + sin((t - 0.1) * 3.4) * 12,
-                   color: Palette.boostBlue)
+            // Each paddle glides ease-in-out from its last return spot to
+            // the next interception, arriving exactly as the ball does.
+            func smooth(_ u: Double) -> Double {
+                let c = min(max(u, 0), 1)
+                return c * c * (3 - 2 * c)
+            }
+            func paddleY(contactPhase: Double) -> Double {
+                let prev = ((t - contactPhase * 3.6) / 3.6).rounded(.down) * 3.6
+                    + contactPhase * 3.6
+                let u = smooth(((t - prev) / 3.6 - 0.3) / 0.7)
+                return ballAt(prev).y + (ballAt(prev + 3.6).y - ballAt(prev).y) * u
+            }
+            paddle(x: court.minX + 8, y: paddleY(contactPhase: 0),
+                   color: Palette.bumperCoral, flash: max(0, 1 - tx * 14))
+            paddle(x: court.maxX - 8, y: paddleY(contactPhase: 0.5),
+                   color: Palette.boostBlue, flash: max(0, 1 - (1 - tx) * 14))
         }
     }
 }

@@ -86,6 +86,7 @@ struct ContentView: View {
         case "2048": Game2048View()
         case "pairs": PairsView()
         case "spin": SpinView()
+        case "home-pong": PongHome()
         default: home
         }
     }
