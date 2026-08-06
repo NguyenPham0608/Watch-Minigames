@@ -1,6 +1,6 @@
 //
 //  Game2048Engine.swift
-//  Minigames Watch App
+//  Watch Minigames Watch App
 //
 //  2048: swipe to slide the board; equal tiles merge and double toward the
 //  gold 2048. Slides tween with a spring overshoot, merges pop, the whole
@@ -116,7 +116,7 @@ final class Game2048Engine {
         time += dt
 
         shakeAmp *= exp(-8 * dt)
-        updateParticles(dt)
+        updateParticles(&particles, dt: dt, drag: 3.4)
         floaters.removeAll { time - $0.bornAt > 0.8 }
 
         if let at = resolveAt, time >= at { resolve() }
@@ -269,9 +269,7 @@ final class Game2048Engine {
             done = true
             doneAt = time
             Haptics.play(.failure, minInterval: 0)
-            let final = score
-            let cb = onGameOver
-            DispatchQueue.main.async { cb?(final) }
+            notifyMainAsync(onGameOver, score)
         }
     }
 
@@ -323,21 +321,15 @@ final class Game2048Engine {
         shakeAmp = 0
         introAt = time
         doneAt = -10
+        lastMergeAt = -10
+        nudgeAt = -10
+        nudgeDir = .zero
+        lastDir = .left
         spawnRandomTile()
         spawnRandomTile()
     }
 
     // MARK: Particles
-
-    private func updateParticles(_ dt: Double) {
-        guard !particles.isEmpty else { return }
-        for i in particles.indices {
-            particles[i].life -= dt
-            particles[i].pos += particles[i].vel * dt
-            particles[i].vel = particles[i].vel * exp(-3.4 * dt)
-        }
-        particles.removeAll { $0.life <= 0 }
-    }
 
     private func spawnBurst(at p: Vec2, big: Bool) {
         let count = big ? 12 : 6
@@ -354,14 +346,7 @@ final class Game2048Engine {
     }
 
     private func spawnConfetti(at p: Vec2) {
-        for k in 0..<26 {
-            let a = Double.random(in: 0..<(2 * .pi))
-            let s = Double.random(in: 60...190)
-            let life = Double.random(in: 0.5...1.0)
-            particles.append(Particle(
-                pos: p, vel: Vec2(cos(a), sin(a)) * s,
-                life: life, maxLife: life,
-                size: Double.random(in: 1.8...3.2), hue: .confetti(k)))
-        }
+        spawnRadialBurst(into: &particles, at: p, count: 26, speed: 60...190,
+                         life: 0.5...1.0, size: 1.8...3.2) { .confetti($0) }
     }
 }

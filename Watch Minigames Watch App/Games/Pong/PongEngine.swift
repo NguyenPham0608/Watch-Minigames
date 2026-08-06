@@ -1,6 +1,6 @@
 //
 //  PongEngine.swift
-//  Minigames Watch App
+//  Watch Minigames Watch App
 //
 //  Super Pong: crown-controlled paddle vs a smooth predictive bot, with
 //  charge-up smash attacks, power orbs, particles and haptics.
@@ -36,9 +36,16 @@ final class PongEngine {
     var difficulty = 2
 
     /// Bot returns needed to arm its smash; easy bots never smash.
-    var botChargeThreshold: Int { [99, 5, 4][difficulty] }
-    private var botEaseRate: Double { [5.0, 6.5, 8.0][difficulty] }
-    private var botErrorRange: Double { [26.0, 16.0, 9.0][difficulty] }
+    /// Defaults absorb any out-of-range difficulty, like botMaxSpeed().
+    var botChargeThreshold: Int {
+        switch difficulty { case 0: return 99; case 1: return 5; default: return 4 }
+    }
+    private var botEaseRate: Double {
+        switch difficulty { case 0: return 5.0; case 1: return 6.5; default: return 8.0 }
+    }
+    private var botErrorRange: Double {
+        switch difficulty { case 0: return 26.0; case 1: return 16.0; default: return 9.0 }
+    }
 
     /// Court size in world units — the view keeps this matched to the screen.
     var courtW = 180.0
@@ -114,7 +121,7 @@ final class PongEngine {
         time += dt
 
         shakeAmp *= exp(-7 * dt)
-        updateParticles(dt)
+        updateParticles(&particles, dt: dt, drag: 3.2)
         ripples.removeAll { time - $0.at > 0.5 }
 
         guard gameOver == nil else { return }
@@ -293,8 +300,7 @@ final class PongEngine {
         if let winner {
             gameOver = winner
             if winner == .player { spawnGoalBurst(at: Vec2(courtW / 2, courtH / 2), happy: true) }
-            let cb = onGameOver
-            DispatchQueue.main.async { cb?(winner) }
+            notifyMainAsync(onGameOver, winner)
             return
         }
         serveToward = side == .player ? .bot : .player
@@ -322,6 +328,14 @@ final class PongEngine {
         trail.removeAll()
         particles.removeAll()
         ripples.removeAll()
+        botError = 0
+        lastHitter = nil
+        lastHitAt = -10
+        playerHitAt = -10
+        botHitAt = -10
+        lastScoreAt = -10
+        lastScoreSide = nil
+        shakeAmp = 0
     }
 
     // MARK: Orbs
@@ -360,37 +374,15 @@ final class PongEngine {
 
     // MARK: Particles
 
-    private func updateParticles(_ dt: Double) {
-        guard !particles.isEmpty else { return }
-        for i in particles.indices {
-            particles[i].life -= dt
-            particles[i].pos += particles[i].vel * dt
-            particles[i].vel = particles[i].vel * exp(-3.2 * dt)
-        }
-        particles.removeAll { $0.life <= 0 }
-    }
-
     private func spawnSparks(at p: Vec2, side: Side, smashed: Bool) {
-        let n = smashed ? 16 : 8
-        for _ in 0..<n {
-            let a = Double.random(in: 0..<(2 * .pi))
-            let s = Double.random(in: 30...(smashed ? 190 : 110))
-            let life = Double.random(in: 0.25...0.5)
-            particles.append(Particle(pos: p, vel: Vec2(cos(a), sin(a)) * s,
-                                      life: life, maxLife: life,
-                                      size: Double.random(in: 1.4...2.6),
-                                      hue: smashed ? .gold : .white))
-        }
+        spawnRadialBurst(into: &particles, at: p, count: smashed ? 16 : 8,
+                         speed: 30...(smashed ? 190 : 110), life: 0.25...0.5,
+                         size: 1.4...2.6) { _ in smashed ? .gold : .white }
     }
 
     private func spawnPuff(at p: Vec2) {
-        for _ in 0..<4 {
-            let a = Double.random(in: 0..<(2 * .pi))
-            let life = Double.random(in: 0.2...0.35)
-            particles.append(Particle(pos: p, vel: Vec2(cos(a), sin(a)) * Double.random(in: 15...45),
-                                      life: life, maxLife: life,
-                                      size: Double.random(in: 1.2...2), hue: .shard))
-        }
+        spawnRadialBurst(into: &particles, at: p, count: 4, speed: 15...45,
+                         life: 0.2...0.35, size: 1.2...2) { _ in .shard }
     }
 
     private func spawnRing(at p: Vec2, hue: Particle.ParticleHue) {
@@ -403,14 +395,7 @@ final class PongEngine {
 
     private func spawnGoalBurst(at p: Vec2, happy: Bool) {
         let clamped = Vec2(min(max(p.x, 10), courtW - 10), min(max(p.y, 10), courtH - 10))
-        for k in 0..<26 {
-            let a = Double.random(in: 0..<(2 * .pi))
-            let s = Double.random(in: 50...200)
-            let life = Double.random(in: 0.5...1.0)
-            particles.append(Particle(pos: clamped, vel: Vec2(cos(a), sin(a)) * s,
-                                      life: life, maxLife: life,
-                                      size: Double.random(in: 1.8...3.2),
-                                      hue: happy ? .confetti(k) : .shard))
-        }
+        spawnRadialBurst(into: &particles, at: clamped, count: 26, speed: 50...200,
+                         life: 0.5...1.0, size: 1.8...3.2) { happy ? .confetti($0) : .shard }
     }
 }

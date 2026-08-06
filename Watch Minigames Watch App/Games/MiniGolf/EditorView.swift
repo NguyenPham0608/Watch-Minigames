@@ -1,6 +1,6 @@
 //
 //  EditorView.swift
-//  Minigames Watch App
+//  Watch Minigames Watch App
 //
 //  On-watch course editor. Select something, then a tool decides what dragging
 //  and the crown do to it — move a point, stretch a whole section, or swing
@@ -50,6 +50,7 @@ struct EditorView: View {
 
     @State private var draft: HoleDesign
     @State private var geo: FairwayGeometry
+    @State private var renderCache: GolfRenderCache
     @State private var selection: Selection = .none
     @State private var cam: Vec2
     @State private var zoom = 0.9
@@ -71,6 +72,11 @@ struct EditorView: View {
     @State private var showTest = false
     @State private var showSave = false
     @State private var courseName: String
+    /// Throttle for interactive rebuilds: drags and crown bursts rebuild the
+    /// SDF pipeline at most ~15×/s, with a pending item guaranteeing a
+    /// trailing rebuild when a burst stops mid-interval.
+    @State private var lastRebuildAt = 0.0
+    @State private var pendingRebuild: DispatchWorkItem? = nil
 
     enum Selection: Equatable {
         case none
@@ -87,10 +93,15 @@ struct EditorView: View {
         case pan(startCam: Vec2)
     }
 
+    /// True when building a brand-new course (vs editing an existing one).
+    private let isNew: Bool
+
     init(hole: HoleDesign?, newNumber: Int = 1) {
+        isNew = hole == nil
         let h = hole ?? HoleDesign.newCustom(number: newNumber)
         _draft = State(initialValue: h)
         _geo = State(initialValue: FairwayGeometry(paths: h.allPaths))
+        _renderCache = State(initialValue: GolfRenderCache(hole: h))
         _cam = State(initialValue: Vec2((h.tee.x + h.cup.x) / 2, (h.tee.y + h.cup.y) / 2))
         _courseName = State(initialValue: h.name)
     }
@@ -152,7 +163,7 @@ struct EditorView: View {
         .sheet(isPresented: $showPalette) { palette }
         .sheet(isPresented: $showTest) {
             NavigationStack {
-                GameView(holes: [draft], isPractice: true)
+                GolfView(holes: [draft], isPractice: true)
                     .environment(store)
             }
         }
@@ -163,15 +174,16 @@ struct EditorView: View {
 
     @ViewBuilder
     private func editorCanvas(size: CGSize, t: Double) -> some View {
-        let proj = Projection(cam: cam, size: size, zoom: zoom)
-        let renderer = CourseRenderer(hole: draft, geo: geo, proj: proj, time: t)
+        let proj = CourseProjection(cam: cam, size: size, zoom: zoom)
+        let renderer = CourseRenderer(hole: draft, geo: geo, proj: proj, time: t,
+                                      cache: renderCache)
         Canvas { ctx, _ in
             renderer.draw(into: ctx, engine: nil)
             drawEditorOverlay(ctx, proj: proj, t: t)
         }
     }
 
-    private func drawEditorOverlay(_ ctx: GraphicsContext, proj: Projection, t: Double) {
+    private func drawEditorOverlay(_ ctx: GraphicsContext, proj: CourseProjection, t: Double) {
         // Guides for the selected waypoint: the section being edited, and the
         // width bar the crown adjusts.
         if case .waypoint(let sp, let i) = selection, i < pathRef(sp).count {
@@ -237,7 +249,7 @@ struct EditorView: View {
 
     /// Dashed guide between a portal's two ends while either is selected,
     /// tinted with the pair's own hue.
-    private func drawPortalLink(_ ctx: GraphicsContext, _ o: Obstacle, proj: Projection) {
+    private func drawPortalLink(_ ctx: GraphicsContext, _ o: Obstacle, proj: CourseProjection) {
         let index = draft.obstacles.filter { $0.kind == .portal }
             .firstIndex { $0.id == o.id } ?? 0
         var link = Path()
@@ -277,7 +289,9 @@ struct EditorView: View {
     // MARK: Path accessors
 
     private func pathRef(_ p: Int) -> [Waypoint] {
-        p == 0 ? draft.waypoints : (draft.islands ?? [])[p - 1]
+        if p == 0 { return draft.waypoints }
+        let islands = draft.islands ?? []
+        return p - 1 < islands.count ? islands[p - 1] : []
     }
 
     private func modifyPath(_ p: Int, _ body: (inout [Waypoint]) -> Void) {
@@ -301,13 +315,16 @@ struct EditorView: View {
     /// Waypoints carried along by stretch/bend: everything from `i` onward, or
     /// just the first point when it is the one selected.
     private func affected(path p: Int, from i: Int) -> Range<Int> {
-        i > 0 ? i..<pathRef(p).count : 0..<1
+        let count = pathRef(p).count
+        guard i > 0 else { return 0..<min(1, count) }
+        return min(i, count)..<count
     }
 
     private func sectionDirection(path p: Int, at i: Int) -> Vec2 {
         let a = anchorIndex(path: p, for: i)
         guard a != i else { return Vec2(0, -1) }
         let pts = pathRef(p)
+        guard i < pts.count, a < pts.count else { return Vec2(0, -1) }
         return (pts[i].pos - pts[a].pos).normalized
     }
 
@@ -316,7 +333,7 @@ struct EditorView: View {
     private func editGesture(size: CGSize) -> some Gesture {
         DragGesture(minimumDistance: 0)
             .onChanged { value in
-                let proj = Projection(cam: cam, size: size, zoom: zoom)
+                let proj = CourseProjection(cam: cam, size: size, zoom: zoom)
                 if dragging == nil {
                     if let hit = hitTest(value.startLocation, proj: proj) {
                         selection = hit
@@ -358,7 +375,7 @@ struct EditorView: View {
             }
     }
 
-    private func hitTest(_ screenPoint: CGPoint, proj: Projection) -> Selection? {
+    private func hitTest(_ screenPoint: CGPoint, proj: CourseProjection) -> Selection? {
         var best: Selection? = nil
         var bestD = 22.0
 
@@ -391,7 +408,7 @@ struct EditorView: View {
 
     /// Screen point back to world space (the projection's scale depends on the
     /// point's own depth, so solve it by iterating).
-    private func worldPoint(_ screenPoint: CGPoint, proj: Projection) -> Vec2 {
+    private func worldPoint(_ screenPoint: CGPoint, proj: CourseProjection) -> Vec2 {
         var world = cam
         for _ in 0..<3 {
             let f = proj.factor(world)
@@ -416,7 +433,7 @@ struct EditorView: View {
         }
     }
 
-    private func moveSelection(to screenPoint: CGPoint, proj: Projection) {
+    private func moveSelection(to screenPoint: CGPoint, proj: CourseProjection) {
         let world = worldPoint(screenPoint, proj: proj) + grabOffset
         switch selection {
         case .waypoint(let sp, let i):
@@ -447,7 +464,7 @@ struct EditorView: View {
             default:
                 modifyPath(sp) { $0[i].pos = world }
             }
-            rebuildGeometry()
+            rebuildGeometryThrottled()
         case .obstacle(let id):
             if let idx = draft.obstacles.firstIndex(where: { $0.id == id }) {
                 draft.obstacles[idx].pos = world
@@ -467,12 +484,49 @@ struct EditorView: View {
     }
 
     private func clampTeeAndCup() {
+        // Never clamp against land a throttled rebuild hasn't traced yet.
+        flushPendingRebuild()
         if !geo.contains(draft.tee) { draft.tee = geo.nearestCenterPoint(to: draft.tee) }
         if !geo.contains(draft.cup) { draft.cup = geo.nearestCenterPoint(to: draft.cup) }
     }
 
+    /// Full rebuild, immediately: the SDF pipeline, boundary loops, and a
+    /// fresh render cache (a changed course invalidates every stored path).
     private func rebuildGeometry() {
+        pendingRebuild?.cancel()
+        pendingRebuild = nil
+        lastRebuildAt = Date().timeIntervalSinceReferenceDate
         geo = FairwayGeometry(paths: draft.allPaths)
+        renderCache = GolfRenderCache(hole: draft)
+    }
+
+    /// Rebuild for continuous edits (drag frames, crown ticks): leading-edge
+    /// immediate, then at most one rebuild per 1/15 s while the burst keeps
+    /// going, with a guaranteed trailing rebuild carrying the final state.
+    /// `thenClamp` re-runs the tee/cup clamp after each rebuild that fires.
+    private func rebuildGeometryThrottled(thenClamp: Bool = false) {
+        let interval = 1.0 / 15.0
+        let now = Date().timeIntervalSinceReferenceDate
+        if now - lastRebuildAt >= interval {
+            rebuildGeometry()
+            if thenClamp { clampTeeAndCup() }
+        } else {
+            pendingRebuild?.cancel()
+            let work = DispatchWorkItem {
+                rebuildGeometry()
+                if thenClamp { clampTeeAndCup() }
+            }
+            pendingRebuild = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + (lastRebuildAt + interval - now),
+                                          execute: work)
+        }
+    }
+
+    /// Runs a queued trailing rebuild right now, so geometry consumers
+    /// (clamping, testing, saving) never read stale land.
+    private func flushPendingRebuild() {
+        guard pendingRebuild != nil else { return }
+        rebuildGeometry()
     }
 
     // MARK: Crown
@@ -492,7 +546,10 @@ struct EditorView: View {
                     for k in self.affected(path: sp, from: i) { pts[k].pos += move }
                 }
             case .bend:
-                let anchor = pathRef(sp)[anchorIndex(path: sp, for: i)].pos
+                let path = pathRef(sp)
+                let a = anchorIndex(path: sp, for: i)
+                guard a < path.count else { return }
+                let anchor = path[a].pos
                 let angle = delta * 0.02
                 modifyPath(sp) { pts in
                     for k in self.affected(path: sp, from: i) {
@@ -501,11 +558,11 @@ struct EditorView: View {
                 }
             default:
                 modifyPath(sp) { pts in
+                    guard i < pts.count else { return }
                     pts[i].width = min(max(pts[i].width + delta * 1.1, 34), 150)
                 }
             }
-            rebuildGeometry()
-            clampTeeAndCup()
+            rebuildGeometryThrottled(thenClamp: true)
 
         case .obstacle(let id):
             guard let idx = draft.obstacles.firstIndex(where: { $0.id == id }) else { return }
@@ -758,6 +815,11 @@ struct EditorView: View {
                 clampTeeAndCup()
                 var toSave = draft
                 toSave.name = courseName.isEmpty ? draft.name : courseName
+                if isNew {
+                    // Claim the course number only on a real save, so a
+                    // cancelled editor never burns one.
+                    _ = store.nextCustomNumber()
+                }
                 store.saveCustom(toSave)
                 showSave = false
                 dismiss()

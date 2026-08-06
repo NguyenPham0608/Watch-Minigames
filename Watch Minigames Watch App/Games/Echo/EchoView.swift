@@ -1,6 +1,6 @@
 //
 //  EchoView.swift
-//  Minigames Watch App
+//  Watch Minigames Watch App
 //
 //  Echo: watch the four pads sing a pattern, then tap it back. One more
 //  note every round until you slip.
@@ -64,19 +64,19 @@ final class EchoEngine {
         lastDate = date
         time += dt
         shakeAmp *= exp(-7 * dt)
-        updateParticles(dt)
+        updateParticles(&particles, dt: dt, drag: 3.0)
 
         switch phase {
         case .breathe(let until):
             if time >= until {
                 phase = .showing(step: 0, since: time)
-                if let pad = showingPad { flashHaptic(pad) }
+                if showingPad != nil { flashHaptic() }
             }
         case .showing(let step, let since):
             if time - since >= Self.showBeat {
                 if step + 1 < sequence.count {
                     phase = .showing(step: step + 1, since: time)
-                    flashHaptic(sequence[step + 1])
+                    flashHaptic()
                 } else {
                     phase = .listening(progress: 0)
                 }
@@ -86,7 +86,7 @@ final class EchoEngine {
         }
     }
 
-    private func flashHaptic(_ pad: Int) {
+    private func flashHaptic() {
         Haptics.play(.click, minInterval: 0)
     }
 
@@ -113,9 +113,7 @@ final class EchoEngine {
             shakeAmp = 5
             phase = .done
             Haptics.play(.failure, minInterval: 0)
-            let final = score
-            let cb = onGameOver
-            DispatchQueue.main.async { cb?(final) }
+            notifyMainAsync(onGameOver, score)
         }
     }
 
@@ -130,16 +128,6 @@ final class EchoEngine {
     }
 
     // MARK: Particles
-
-    private func updateParticles(_ dt: Double) {
-        guard !particles.isEmpty else { return }
-        for i in particles.indices {
-            particles[i].life -= dt
-            particles[i].pos += particles[i].vel * dt
-            particles[i].vel = particles[i].vel * exp(-3.0 * dt)
-        }
-        particles.removeAll { $0.life <= 0 }
-    }
 
     var burstCenter = Vec2(90, 110)
 
@@ -164,32 +152,38 @@ struct EchoView: View {
     @State private var engine = EchoEngine()
     @State private var finalScore: Int? = nil
     @State private var wasBest = false
+    /// Game over and every send-off effect has played out — freezes the
+    /// render clock behind the result card.
+    @State private var settled = false
 
     var body: some View {
-        GeometryReader { geo in
-            ZStack {
-                TimelineView(.animation) { timeline in
-                    canvasView(size: geo.size, date: timeline.date)
-                }
-                if let score = finalScore {
-                    ResultCard(title: "\(score) Rounds",
-                               subtitle: wasBest && score > 0
-                                   ? "New Best" : "Best \(store.arcadeBest("echo"))",
-                               titleGold: score > 0,
-                               subtitleGold: wasBest && score > 0) {
-                        engine.reset()
-                        withAnimation { finalScore = nil }
-                    }
+        // Turn-based: nothing on screen moves faster than 30fps can show.
+        ArcadeScreen(fps: 30, extraPaused: settled) { size, date in
+            canvasView(size: size, date: date)
+        } overlay: {
+            if let score = finalScore {
+                ResultCard(title: "\(score) Rounds",
+                           subtitle: wasBest && score > 0
+                               ? "New Best" : "Best \(store.arcadeBest("echo"))",
+                           titleGold: score > 0,
+                           subtitleGold: wasBest && score > 0) {
+                    settled = false
+                    engine.reset()
+                    withAnimation { finalScore = nil }
                 }
             }
         }
-        .ignoresSafeArea()
         .onAppear {
             engine.onGameOver = { score in
                 wasBest = store.recordArcadeBest("echo", score)
                 // Let the wrong-pad flash land before the card slides in.
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) {
                     withAnimation(.easeOut(duration: 0.3)) { finalScore = score }
+                }
+                // Freeze once every effect has faded; a replay within the
+                // window clears the card and voids the stale timer.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                    if finalScore != nil { settled = true }
                 }
             }
         }
@@ -218,10 +212,10 @@ struct EchoRenderer {
     let time: Double
 
     static let padColors: [(main: Color, deep: Color)] = [
-        (Palette.bumperCoral, Color(red: 0.70, green: 0.34, blue: 0.27)),
+        (Palette.bumperCoral, Palette.coralDeep),
         (Palette.boostBlue, Palette.boostBlueDeep),
         (Palette.gold, Palette.goldDeep),
-        (Color(red: 0.38, green: 0.70, blue: 0.66), Color(red: 0.27, green: 0.54, blue: 0.50)),
+        (Palette.teal, Palette.tealDeep),
     ]
 
     static func padRect(_ i: Int, size: CGSize) -> CGRect {
@@ -244,8 +238,8 @@ struct EchoRenderer {
     func draw(into base: GraphicsContext) {
         var ctx = base
         if engine.shakeAmp > 0.15 {
-            ctx.translateBy(x: sin(time * 67) * engine.shakeAmp,
-                            y: cos(time * 53) * engine.shakeAmp * 0.6)
+            let shake = shakeOffset(time: time, amp: engine.shakeAmp)
+            ctx.translateBy(x: shake.width, y: shake.height)
         }
 
         ctx.fill(Path(CGRect(origin: .zero, size: size)), with: .color(Palette.bg))
@@ -326,7 +320,7 @@ struct EchoRenderer {
         case .listening(let progress):
             frac = Double(progress) / Double(n)
         case .showing(let step, let since):
-            let noteDone = min((time - since) / Self.showBeatForRing, 1)
+            let noteDone = min((time - since) / EchoEngine.showBeat, 1)
             frac = (Double(step) + noteDone) / Double(n)
             color = Palette.boostBlue
         case .breathe:
@@ -358,9 +352,6 @@ struct EchoRenderer {
                      with: .color(.white))
         }
     }
-
-    /// Playback beat length, mirrored from the engine for the ring sweep.
-    private static var showBeatForRing: Double { EchoEngine.showBeat }
 }
 
 // MARK: - Home page

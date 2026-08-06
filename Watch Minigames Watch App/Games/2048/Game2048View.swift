@@ -1,6 +1,6 @@
 //
 //  Game2048View.swift
-//  Minigames Watch App
+//  Watch Minigames Watch App
 //
 //  2048 rendering: an inked board of springy flat-color tiles climbing the
 //  palette from cream through coral and blue to the gold 2048.
@@ -16,24 +16,20 @@ struct Game2048View: View {
     @State private var wasBest = false
 
     var body: some View {
-        GeometryReader { geo in
-            ZStack {
-                TimelineView(.animation) { timeline in
-                    canvasView(size: geo.size, date: timeline.date)
-                }
-                if let score = finalScore {
-                    ResultCard(title: "Score \(score)",
-                               subtitle: wasBest && score > 0
-                                   ? "New Best" : "Best \(store.arcadeBest("2048"))",
-                               titleGold: score > 0,
-                               subtitleGold: wasBest && score > 0) {
-                        engine.reset()
-                        withAnimation { finalScore = nil }
-                    }
+        ArcadeScreen { size, date in
+            canvasView(size: size, date: date)
+        } overlay: {
+            if let score = finalScore {
+                ResultCard(title: "Score \(score)",
+                           subtitle: wasBest && score > 0
+                               ? "New Best" : "Best \(store.arcadeBest("2048"))",
+                           titleGold: score > 0,
+                           subtitleGold: wasBest && score > 0) {
+                    engine.reset()
+                    withAnimation { finalScore = nil }
                 }
             }
         }
-        .ignoresSafeArea()
         .onAppear {
             engine.onGameOver = { score in
                 wasBest = store.recordArcadeBest("2048", score)
@@ -81,9 +77,9 @@ struct Game2048Renderer {
         case 8: return (Palette.gold, Palette.ink)
         case 16: return (Palette.goldDeep, .white)
         case 32: return (Palette.bumperCoral, .white)
-        case 64: return (Color(red: 0.70, green: 0.34, blue: 0.27), .white)
-        case 128: return (Color(red: 0.63, green: 0.53, blue: 0.79), .white)
-        case 256: return (Color(red: 0.48, green: 0.39, blue: 0.63), .white)
+        case 64: return (Palette.coralDeep, .white)
+        case 128: return (Palette.plumPurple, .white)
+        case 256: return (Palette.plumDeep, .white)
         case 512: return (Palette.boostBlue, .white)
         case 1024: return (Palette.boostBlueDeep, .white)
         case 2048: return (Palette.deepGreen, .white)
@@ -91,21 +87,11 @@ struct Game2048Renderer {
         }
     }
 
-    private func decay(_ at: Double, _ dur: Double) -> Double {
-        max(0, 1 - (time - at) / dur)
-    }
-
-    /// Slide ease with a small overshoot so tiles land with a spring.
-    private func easeOutBack(_ t: Double, _ s: Double = 0.9) -> Double {
-        let u = min(max(t, 0), 1) - 1
-        return 1 + u * u * ((s + 1) * u + s)
-    }
-
     func draw(into base: GraphicsContext) {
         var ctx = base
         if engine.shakeAmp > 0.15 {
-            ctx.translateBy(x: sin(time * 67) * engine.shakeAmp,
-                            y: cos(time * 53) * engine.shakeAmp * 0.6)
+            let shake = shakeOffset(time: time, amp: engine.shakeAmp)
+            ctx.translateBy(x: shake.width, y: shake.height)
         }
 
         ctx.fill(Path(CGRect(origin: .zero, size: size)), with: .color(Palette.bg))
@@ -128,8 +114,8 @@ struct Game2048Renderer {
             g.translateBy(x: -cx, y: -cy)
         }
         // Whole board (slab + tiles) nudges in the swipe direction on a slam.
-        let nt = 1 - decay(engine.nudgeAt, 0.16)
-        let nudge = decay(engine.nudgeAt, 0.16) * sin(min(nt, 1) * .pi)
+        let nt = 1 - decay(engine.nudgeAt, 0.16, now: time)
+        let nudge = decay(engine.nudgeAt, 0.16, now: time) * sin(min(nt, 1) * .pi)
         g.translateBy(x: engine.nudgeDir.x * 3 * nudge,
                       y: engine.nudgeDir.y * 3 * nudge)
 
@@ -159,7 +145,7 @@ struct Game2048Renderer {
 
     /// Plain ink score under the clock — pops and warms gold on a merge.
     private func drawScore(_ ctx: GraphicsContext) {
-        let flash = decay(engine.lastMergeAt, 0.35)
+        let flash = decay(engine.lastMergeAt, 0.35, now: time)
         let fontSize: Double = 20 * (1 + flash * 0.12)
         let color: Color = flash > 0
             ? Palette.goldDeep.opacity(0.6 + 0.4 * flash)
@@ -205,7 +191,7 @@ struct Game2048Renderer {
         var scale = 1.0
         let born = time - tile.spawnedAt
         if born < 0.18 { scale = easeOutBack(born / 0.18, 1.7) }
-        let merge = decay(tile.mergedAt, 0.22)
+        let merge = decay(tile.mergedAt, 0.22, now: time)
         if merge > 0 { scale += 0.24 * sin((1 - merge) * .pi) }
         guard scale > 0.02 else { return }
 
@@ -298,10 +284,6 @@ private struct Game2048Scene: View {
             }
 
             let u = (t / 3.2).truncatingRemainder(dividingBy: 1)
-            func easeBack(_ x: Double) -> Double {
-                let v = min(max(x, 0), 1) - 1
-                return 1 + v * v * (1.9 * v + 0.9)
-            }
 
             func tile(_ rect: CGRect, _ value: Int, _ fill: Color,
                       _ text: Color, scale: Double) {
@@ -324,7 +306,7 @@ private struct Game2048Scene: View {
 
             if u < 0.3 {
                 // Two 2s spring toward the center well.
-                let e = easeBack(u / 0.3)
+                let e = easeOutBack(u / 0.3)
                 let leftR = well(0).offsetBy(dx: (well(1).minX - well(0).minX) * e, dy: 0)
                 let rightR = well(2).offsetBy(dx: (well(1).minX - well(2).minX) * e, dy: 0)
                 tile(rightR, 2, Palette.wallTop, Palette.ink, scale: 1)
@@ -352,7 +334,7 @@ private struct Game2048Scene: View {
                 let fade = 1 - (u - 0.85) / 0.15
                 tile(well(1), 4, Palette.gold.opacity(fade), Palette.ink.opacity(fade),
                      scale: 0.9 + 0.1 * fade)
-                let popIn = easeBack((u - 0.9) / 0.1)
+                let popIn = easeOutBack((u - 0.9) / 0.1)
                 tile(well(0), 2, Palette.wallTop, Palette.ink, scale: popIn)
                 tile(well(2), 2, Palette.wallTop, Palette.ink, scale: popIn)
             }

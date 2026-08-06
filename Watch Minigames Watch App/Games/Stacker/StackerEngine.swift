@@ -1,6 +1,6 @@
 //
 //  StackerEngine.swift
-//  Minigames Watch App
+//  Watch Minigames Watch App
 //
 //  Stacker: household objects sway overhead — tap to drop them onto the
 //  tower. Real statics decide survival: if the combined center of mass of
@@ -93,6 +93,8 @@ final class StackerEngine {
     var lastLandAt = -10.0
     var lastPerfectAt = -10.0
     var particles: [Particle] = []
+    /// Fires once per landing with the updated score (perfects included).
+    var onScore: ((Int) -> Void)?
     var onGameOver: ((Int) -> Void)?
 
     private var lastDate: Date?
@@ -129,7 +131,7 @@ final class StackerEngine {
         time += dt
         shakeAmp *= exp(-7 * dt)
         wobbleAmp *= exp(-2.2 * dt)
-        updateParticles(dt)
+        updateParticles(&particles, dt: dt, drag: 3.0)
         updateFreeBodies(dt)
 
         if let s = spawnAt, time >= s {
@@ -158,9 +160,7 @@ final class StackerEngine {
         case .tumbling(let endAt):
             if time >= endAt {
                 phase = .done
-                let final = score
-                let cb = onGameOver
-                DispatchQueue.main.async { cb?(final) }
+                notifyMainAsync(onGameOver, score)
             }
         default:
             break
@@ -254,6 +254,7 @@ final class StackerEngine {
         } else {
             Haptics.play(.directionDown, minInterval: 0)
         }
+        notifyMainAsync(onScore, score)
 
         // Real statics: walk down the tower — the combined center of mass of
         // everything above each joint must sit over that joint's patch.
@@ -329,6 +330,9 @@ final class StackerEngine {
         wobbleAmp = 0
         swayDirection = 1
         spawnAt = nil
+        shakeAmp = 0
+        lastLandAt = -10
+        lastPerfectAt = -10
         phase = .swaying(spec: Self.randomSpec(), since: time)
     }
 
@@ -347,16 +351,6 @@ final class StackerEngine {
     }
 
     // MARK: Particles
-
-    private func updateParticles(_ dt: Double) {
-        guard !particles.isEmpty else { return }
-        for i in particles.indices {
-            particles[i].life -= dt
-            particles[i].pos += particles[i].vel * dt
-            particles[i].vel = particles[i].vel * exp(-3.0 * dt)
-        }
-        particles.removeAll { $0.life <= 0 }
-    }
 
     private func spawnDust(at p: Vec2, width: Double) {
         for _ in 0..<7 {

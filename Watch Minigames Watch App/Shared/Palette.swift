@@ -1,6 +1,6 @@
 //
 //  Palette.swift
-//  Minigames Watch App
+//  Watch Minigames Watch App
 //
 //  The shared cartoon palette: flat bright fills behind bold ink outlines.
 //  Every game draws from this one set so the app reads as a single world.
@@ -30,10 +30,16 @@ enum Palette {
     static let treeGreen = Color(red: 0.30, green: 0.55, blue: 0.33)
     static let trunkBrown = Color(red: 0.47, green: 0.35, blue: 0.22)
     static let fanGray = Color(red: 0.60, green: 0.63, blue: 0.66)
+    static let coralDeep = Color(red: 0.70, green: 0.34, blue: 0.27)
+    static let teal = Color(red: 0.38, green: 0.70, blue: 0.66)
+    static let tealDeep = Color(red: 0.27, green: 0.54, blue: 0.50)
+    static let plumPurple = Color(red: 0.63, green: 0.53, blue: 0.79)
+    static let plumDeep = Color(red: 0.48, green: 0.39, blue: 0.63)
+    static let paddleCore = Color(red: 0.76, green: 0.88, blue: 0.95)
 
     /// Muted hue per portal pair, so multiple pairs on one hole stay
     /// tellable apart. Indexed by the pair's order among the hole's portals.
-    static let portalHues: [(main: Color, deep: Color, light: Color)] = [
+    private static let portalHues: [(main: Color, deep: Color, light: Color)] = [
         (Color(red: 0.42, green: 0.64, blue: 0.79),
          Color(red: 0.29, green: 0.49, blue: 0.63),
          Color(red: 0.76, green: 0.86, blue: 0.92)),
@@ -52,10 +58,7 @@ enum Palette {
     ]
 
     static let confettiColors: [Color] = [
-        gold, bumperCoral, boostBlue,
-        Color(red: 0.63, green: 0.53, blue: 0.79),
-        Color(red: 0.38, green: 0.70, blue: 0.66),
-        wallTop,
+        gold, bumperCoral, boostBlue, plumPurple, teal, wallTop,
     ]
 
     static func portalHue(_ i: Int) -> (main: Color, deep: Color, light: Color) {

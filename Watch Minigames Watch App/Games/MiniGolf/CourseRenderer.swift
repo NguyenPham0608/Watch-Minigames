@@ -1,6 +1,6 @@
 //
 //  CourseRenderer.swift
-//  Minigames Watch App
+//  Watch Minigames Watch App
 //
 //  Flat cartoon rendering: bright fills, bold ink outlines, and smooth
 //  stroked wall bands (white tops over a warm gray side sliver).
@@ -8,11 +8,11 @@
 
 import SwiftUI
 
-// MARK: - Projection
+// MARK: - CourseProjection
 
 /// Maps world space to screen space with a gentle "tilt toward the horizon":
 /// points lower on screen scale up slightly.
-struct Projection {
+struct CourseProjection {
     var cam: Vec2
     var size: CGSize
     var zoom: Double
@@ -37,8 +37,10 @@ struct Projection {
 struct CourseRenderer {
     let hole: HoleDesign
     let geo: FairwayGeometry
-    let proj: Projection
+    let proj: CourseProjection
     let time: Double
+    /// Path/point caches owned by the hosting view, surviving across frames.
+    let cache: GolfRenderCache
 
     /// Half-width of the boundary wall band, in world units.
     static let wallHalf = 5.2
@@ -51,43 +53,46 @@ struct CourseRenderer {
 
     // MARK: Full course
 
-    func draw(into base: GraphicsContext, engine: GameEngine?) {
+    func draw(into base: GraphicsContext, engine: GolfEngine?) {
         // Hard impacts rattle the whole view for a beat.
         var ctx = base
         if let engine, engine.shakeAmp > 0.15 {
-            ctx.translateBy(x: sin(time * 67) * engine.shakeAmp,
-                            y: cos(time * 53) * engine.shakeAmp * 0.6)
+            let shake = shakeOffset(time: time, amp: engine.shakeAmp)
+            ctx.translateBy(x: shake.width, y: shake.height)
         }
 
         // Flat background + a soft scrim up top so the system clock stays legible.
         ctx.fill(Path(CGRect(origin: .zero, size: proj.size)), with: .color(Palette.bg))
-        ctx.fill(Path(CGRect(x: 0, y: 0, width: proj.size.width, height: 42)),
-                 with: .linearGradient(
-                    Gradient(colors: [Color.black.opacity(0.28), .clear]),
-                    startPoint: .zero, endPoint: CGPoint(x: 0, y: 42)))
+        drawClockScrim(ctx, size: proj.size)
 
-        // Boundary loops (outer edge + any enclosed pockets): even-odd fill
-        // keeps pockets as background. Built with the same curve smoothing as
-        // the wall bands so fill and stroke trace the identical edge.
-        var ground = Path()
-        for loop in geo.loops {
-            ground.addPath(levelPath(loop, closed: true, t: 0, height: 0))
+        // Ground, course shadow and wall level paths: rebuilt only when the
+        // camera, zoom, viewport or wall set actually changed, reused
+        // verbatim otherwise.
+        let key = GolfRenderCache.FrameKey(
+            camX: proj.cam.x, camY: proj.cam.y, zoom: proj.zoom,
+            width: proj.size.width, height: proj.size.height,
+            broken: engine?.brokenBarriers ?? [],
+            obstacles: hole.obstacles)
+        let frame = cache.frameGeometry(key: key) {
+            buildFrameGeometry(broken: key.broken)
         }
+        let ground = frame.ground
         let evenOdd = FillStyle(eoFill: true)
-        drawCourseShadow(ctx, ground)
+        drawCourseShadow(ctx, frame.shadow)
 
         // Grass.
         ctx.fill(ground, with: .color(Palette.fairway), style: evenOdd)
         drawStripes(ctx, clip: ground)
 
         // Flat ground decals.
+        let portalIndices = cache.portalIndices(for: hole.obstacles)
         for o in hole.obstacles {
             switch o.kind {
             case .sand: drawSand(ctx, o)
             case .boost: drawBoost(ctx, o)
             case .hill: drawHill(ctx, o)
             case .vortex: drawVortex(ctx, o)
-            case .portal: drawPortal(ctx, o, engine: engine)
+            case .portal: drawPortal(ctx, o, index: portalIndices[o.id] ?? 0, engine: engine)
             case .flowers: drawFlowers(ctx, o)
             default: break
             }
@@ -99,8 +104,8 @@ struct CourseRenderer {
            engine.ballPos.distance(to: hole.cup) < 32 {
             let c = proj.point(hole.cup)
             let pulse = (sin(time * 6) + 1) / 2
-            let r = proj.length(GameEngine.cupRadius, at: hole.cup) + 3 + pulse * 3
-            ctx.stroke(ellipse(at: c, rx: r, ry: r * 0.84),
+            let r = proj.length(GolfEngine.cupRadius, at: hole.cup) + 3 + pulse * 3
+            ctx.stroke(arcadeEllipse(at: c, rx: r, ry: r * 0.84),
                        with: .color(Palette.gold.opacity(0.7 - pulse * 0.35)),
                        style: StrokeStyle(lineWidth: 1.8))
         }
@@ -111,42 +116,55 @@ struct CourseRenderer {
         // of the flank and behind the cap. Drawing those as two passes with
         // the sprites in between gives exactly that, and since each pass is
         // one continuous painting the walls can never show a seam.
-        let walls = wallLines(engine: engine)
-        for w in walls {
-            drawExtrudedWall(ctx, worldPoints: w.pts, closed: w.closed, width: w.width,
-                             height: w.height, topColor: w.topColor, phase: .flank)
+        for w in frame.walls {
+            strokeWall(ctx, w, engine: engine, phase: .flank)
         }
 
-        var sprites: [(y: Double, draw: (GraphicsContext) -> Void)] = []
+        var sprites: [(y: Double, kind: Sprite)] = []
         for o in hole.obstacles {
             switch o.kind {
             case .coin:
                 if engine?.collectedCoins.contains(o.id) != true {
-                    sprites.append((o.pos.y, { self.drawCoin($0, o) }))
+                    sprites.append((o.pos.y, .coin(o)))
                 }
             case .pillar:
-                sprites.append((o.pos.y, { self.drawPillar($0, o) }))
+                sprites.append((o.pos.y, .pillar(o)))
             case .bumper:
-                let flash = engine?.bumperFlash[o.id]
-                sprites.append((o.pos.y, { self.drawBumper($0, o, flashTime: flash) }))
+                sprites.append((o.pos.y, .bumper(o, flashTime: engine?.bumperFlash[o.id])))
             case .spinner:
-                sprites.append((o.pos.y, { self.drawSpinner($0, o) }))
+                sprites.append((o.pos.y, .spinner(o)))
             case .fan:
-                sprites.append((o.pos.y, { self.drawFan($0, o) }))
+                sprites.append((o.pos.y, .fan(o)))
             case .tree:
-                sprites.append((o.pos.y, { self.drawTree($0, o) }))
+                sprites.append((o.pos.y, .tree(o)))
             case .sand, .boost, .arcWall, .barrier, .hill, .vortex, .portal, .flowers:
                 break
             }
         }
         let ballNear = engine.map { $0.ballPos.distance(to: hole.cup) < 26 } ?? false
-        sprites.append((hole.cup.y + 0.1, { self.drawFlag($0, ballNear: ballNear) }))
+        sprites.append((hole.cup.y + 0.1, .flag))
         sprites.sort { $0.y < $1.y }
 
+        func drawSprite(_ ctx: GraphicsContext, _ sprite: Sprite) {
+            switch sprite {
+            case .coin(let o): drawCoin(ctx, o)
+            case .pillar(let o): drawPillar(ctx, o)
+            case .bumper(let o, let flashTime): drawBumper(ctx, o, flashTime: flashTime)
+            case .spinner(let o): drawSpinner(ctx, o)
+            case .fan(let o): drawFan(ctx, o)
+            case .tree(let o): drawTree(ctx, o)
+            case .flag: drawFlag(ctx, ballNear: ballNear)
+            case .ball:
+                guard let engine else { return }
+                var c = ctx
+                c.clip(to: ground, style: evenOdd)
+                drawBall(c, engine: engine)
+            }
+        }
+
         func capPass(_ ctx: GraphicsContext) {
-            for w in walls {
-                drawExtrudedWall(ctx, worldPoints: w.pts, closed: w.closed, width: w.width,
-                                 height: w.height, topColor: w.topColor, phase: .cap)
+            for w in frame.walls {
+                strokeWall(ctx, w, engine: engine, phase: .cap)
             }
         }
 
@@ -154,14 +172,16 @@ struct CourseRenderer {
         // enough to a wall for a cap to touch it. Everywhere else a single
         // continuous cap pass runs — no split line on screen at all.
         var nearWall = false
+        var ballNearest: (point: Vec2, dist: Double, half: Double)? = nil
         if let engine, engine.ballDrawScale > 0.01 {
             let near = geo.nearest(engine.ballPos)
-            nearWall = near.dist > near.half - GameEngine.ballRadius - 30
+            ballNearest = near
+            nearWall = near.dist > near.half - GolfEngine.ballRadius - 30
         }
 
         if let engine, engine.ballDrawScale > 0.01, nearWall {
             let ballY = engine.ballPos.y
-            for sprite in sprites where sprite.y <= ballY { sprite.draw(ctx) }
+            for sprite in sprites where sprite.y <= ballY { drawSprite(ctx, sprite.kind) }
 
             // A cap should hide the ball only when its wall stands *in front*
             // of it. Caps are ground geometry lifted straight up, so the caps
@@ -188,7 +208,7 @@ struct CourseRenderer {
             ballCtx.clip(to: ground, style: evenOdd)
             drawBall(ballCtx, engine: engine)
 
-            for sprite in sprites where sprite.y > ballY { sprite.draw(ctx) }
+            for sprite in sprites where sprite.y > ballY { drawSprite(ctx, sprite.kind) }
 
             var front = ctx
             front.clip(to: Path(CGRect(x: 0, y: splitY - 1.5, width: proj.size.width,
@@ -197,14 +217,10 @@ struct CourseRenderer {
             capPass(front)
         } else {
             if let engine, engine.ballDrawScale > 0.01 {
-                sprites.append((engine.ballPos.y, { ctx in
-                    var c = ctx
-                    c.clip(to: ground, style: evenOdd)
-                    self.drawBall(c, engine: engine)
-                }))
+                sprites.append((engine.ballPos.y, .ball))
                 sprites.sort { $0.y < $1.y }
             }
-            for sprite in sprites { sprite.draw(ctx) }
+            for sprite in sprites { drawSprite(ctx, sprite.kind) }
             capPass(ctx)
         }
 
@@ -213,7 +229,7 @@ struct CourseRenderer {
         }
 
         if let engine {
-            drawBallGhost(ctx, engine: engine)
+            drawBallGhost(ctx, engine: engine, near: ballNearest)
             drawParticles(ctx, engine.particles)
             drawFloaters(ctx, engine.floaters)
             drawAim(ctx, engine: engine)
@@ -222,32 +238,30 @@ struct CourseRenderer {
 
     /// Walls are taller than the ball, so a ball pressed against a wall in
     /// front of it disappears behind the cap. Show a faint silhouette through
-    /// the wall so the player never loses track of it.
-    private func drawBallGhost(_ ctx: GraphicsContext, engine: GameEngine) {
+    /// the wall so the player never loses track of it. `near` shares the
+    /// boundary query the cap-split check already ran this frame.
+    private func drawBallGhost(_ ctx: GraphicsContext, engine: GolfEngine,
+                               near sharedNear: (point: Vec2, dist: Double, half: Double)?) {
         guard engine.ballDrawScale > 0.9,
               engine.state == .ready || engine.state == .rolling else { return }
         let bp = engine.ballPos
         var covered = false
 
-        let near = geo.nearest(bp)
-        if near.dist > near.half - GameEngine.ballRadius - 3 {
+        let near = sharedNear ?? geo.nearest(bp)
+        if near.dist > near.half - GolfEngine.ballRadius - 3 {
             let outward = near.dist > 1e-6 ? (bp - near.point) / near.dist : Vec2(0, 1)
             // Contact point below the ball's center = the wall is in front.
-            if (bp + outward * GameEngine.ballRadius).y >= bp.y - 1 { covered = true }
+            if (bp + outward * GolfEngine.ballRadius).y >= bp.y - 1 { covered = true }
         }
         if !covered {
             outer: for o in hole.obstacles where o.kind == .arcWall || o.kind == .barrier {
                 if o.kind == .barrier, engine.brokenBarriers.contains(o.id) { continue }
-                let pts: [Vec2]
-                if o.kind == .arcWall {
-                    pts = o.arcPoints
-                } else {
-                    let (a, b) = o.barrierEndpoints
-                    pts = [a, b]
-                }
+                let pts = o.kind == .arcWall
+                    ? cache.arcPoints(for: o)
+                    : cache.barrierEndpoints(for: o)
                 for i in 0..<(pts.count - 1) {
                     let c = closestPointOnSegment(bp, pts[i], pts[i + 1])
-                    if c.distance(to: bp) < GameEngine.ballRadius + 9, c.y >= bp.y - 1 {
+                    if c.distance(to: bp) < GolfEngine.ballRadius + 9, c.y >= bp.y - 1 {
                         covered = true
                         break outer
                     }
@@ -257,52 +271,92 @@ struct CourseRenderer {
         guard covered else { return }
 
         let p = proj.point(bp)
-        let r = proj.length(GameEngine.ballRadius, at: bp)
-        let ghost = ellipse(at: CGPoint(x: p.x, y: p.y - 1), rx: r, ry: r)
+        let r = proj.length(GolfEngine.ballRadius, at: bp)
+        let ghost = arcadeEllipse(at: CGPoint(x: p.x, y: p.y - 1), rx: r, ry: r)
         ctx.fill(ghost, with: .color(Palette.wallTop.opacity(0.3)))
         ctx.stroke(ghost, with: .color(Palette.ink.opacity(0.4)),
                    style: StrokeStyle(lineWidth: 1.2, dash: [3, 2.5]))
     }
 
-    // MARK: Walls
+    // MARK: Sprites
 
-    /// A wall the ball and other sprites can be occluded by.
-    private struct WallLine {
-        var pts: [Vec2]
-        var closed: Bool
-        var width: Double
-        var height: Double
-        var topColor: Color
+    /// One depth-sorted drawable layered between the wall flanks and caps.
+    private enum Sprite {
+        case coin(Obstacle)
+        case pillar(Obstacle)
+        case bumper(Obstacle, flashTime: Double?)
+        case spinner(Obstacle)
+        case fan(Obstacle)
+        case tree(Obstacle)
+        case flag
+        case ball
     }
 
-    private func wallLines(engine: GameEngine?) -> [WallLine] {
-        var out = geo.loops.map {
-            WallLine(pts: $0, closed: true, width: bandWidth,
-                     height: Self.wallHeight, topColor: Palette.wallTop)
+    // MARK: Walls
+
+    /// Builds this frame's ground path, course shadow and wall level paths —
+    /// everything `draw` reuses straight from the cache while the camera
+    /// holds still.
+    private func buildFrameGeometry(broken: Set<UUID>) -> GolfRenderCache.FrameGeometry {
+        // Boundary loops (outer edge + any enclosed pockets): even-odd fill
+        // keeps pockets as background. Built with the same curve smoothing as
+        // the wall bands so fill and stroke trace the identical edge.
+        var ground = Path()
+        for loop in geo.loops {
+            ground.addPath(levelPath(loop, closed: true, t: 0, height: 0))
+        }
+        var shadow = ground.strokedPath(StrokeStyle(lineWidth: bandWidth + 7,
+                                                    lineCap: .round, lineJoin: .round))
+        shadow.addPath(ground)
+
+        var walls: [GolfRenderCache.Wall] = []
+        for loop in geo.loops {
+            walls.append(buildWall(loop, closed: true, width: bandWidth,
+                                   height: Self.wallHeight, barrierID: nil))
         }
         for o in hole.obstacles {
             switch o.kind {
             case .arcWall:
-                out.append(WallLine(pts: o.arcPoints, closed: false,
-                                    width: 6.5 * proj.zoom,
-                                    height: Self.wallHeight * 0.85,
-                                    topColor: Palette.wallTop))
+                walls.append(buildWall(cache.arcPoints(for: o), closed: false,
+                                       width: 6.5 * proj.zoom,
+                                       height: Self.wallHeight * 0.85, barrierID: nil))
             case .barrier:
-                guard engine?.brokenBarriers.contains(o.id) != true else { break }
-                // Subdivided so a barrier can be split by a sprite's depth line.
-                let (a, b) = o.barrierEndpoints
-                let pts = (0...8).map { a.lerp(to: b, Double($0) / 8) }
-                var top = Palette.wallTop
-                if let flash = engine?.barrierFlash[o.id], time - flash < 0.3 {
-                    top = Palette.bumperCoral
-                }
-                out.append(WallLine(pts: pts, closed: false, width: 7.5 * proj.zoom,
-                                    height: Self.wallHeight * 0.8, topColor: top))
+                guard !broken.contains(o.id) else { break }
+                walls.append(buildWall(cache.barrierWallPoints(for: o), closed: false,
+                                       width: 7.5 * proj.zoom,
+                                       height: Self.wallHeight * 0.8, barrierID: o.id))
             default:
                 break
             }
         }
-        return out
+        return GolfRenderCache.FrameGeometry(walls: walls, ground: ground, shadow: shadow)
+    }
+
+    /// Projects a wall's points once — one screen position and one
+    /// full-height lift per point — and derives every level path from those
+    /// two arrays, so each level's Path is built exactly once per camera
+    /// change and stroked (ink pass + band pass) from then on.
+    private func buildWall(_ worldPoints: [Vec2], closed: Bool, width: Double,
+                           height: Double, barrierID: UUID?) -> GolfRenderCache.Wall {
+        var screen: [CGPoint] = []
+        var lifts: [Double] = []
+        screen.reserveCapacity(worldPoints.count)
+        lifts.reserveCapacity(worldPoints.count)
+        for p in worldPoints {
+            screen.append(proj.point(p))
+            lifts.append(proj.length(height, at: p))
+        }
+        // Levels are packed a few pixels apart so the union silhouette stays
+        // smooth instead of scalloping.
+        let liftPx = max(1.0, height * proj.zoom * 1.28)
+        let dense = min(10, max(3, Int(liftPx / 3)))
+        var levels: [Path] = []
+        levels.reserveCapacity(dense + 1)
+        for i in 0...dense {
+            levels.append(levelPath(screen: screen, lifts: lifts, closed: closed,
+                                    t: Double(i) / Double(dense)))
+        }
+        return GolfRenderCache.Wall(levels: levels, width: width, barrierID: barrierID)
     }
 
     /// Builds the path for a wall level: each point lifted by `t` (0 = ground,
@@ -311,15 +365,14 @@ struct CourseRenderer {
     /// Rendered as quadratic curves through segment midpoints instead of
     /// straight lines, so the path stays perfectly smooth no matter how far
     /// the camera zooms in.
-    private func levelPath(_ worldPoints: [Vec2], closed: Bool, t: Double,
-                           height: Double) -> Path {
+    private func levelPath(screen: [CGPoint], lifts: [Double], closed: Bool,
+                           t: Double) -> Path {
         var path = Path()
-        let n = worldPoints.count
+        let n = screen.count
         guard n >= 2 else { return path }
         func at(_ i: Int) -> CGPoint {
-            let p = worldPoints[i % n]
-            let s = proj.point(p)
-            return CGPoint(x: s.x, y: s.y - proj.length(height, at: p) * t)
+            let k = i % n
+            return CGPoint(x: screen[k].x, y: screen[k].y - lifts[k] * t)
         }
         func mid(_ a: CGPoint, _ b: CGPoint) -> CGPoint {
             CGPoint(x: (a.x + b.x) / 2, y: (a.y + b.y) / 2)
@@ -350,55 +403,62 @@ struct CourseRenderer {
         return path
     }
 
+    /// World-space convenience for one-off levels (the flat ground outline).
+    private func levelPath(_ worldPoints: [Vec2], closed: Bool, t: Double,
+                           height: Double) -> Path {
+        var screen: [CGPoint] = []
+        var lifts: [Double] = []
+        screen.reserveCapacity(worldPoints.count)
+        lifts.reserveCapacity(worldPoints.count)
+        for p in worldPoints {
+            screen.append(proj.point(p))
+            lifts.append(proj.length(height, at: p))
+        }
+        return levelPath(screen: screen, lifts: lifts, closed: closed, t: t)
+    }
+
     /// Which half of a wall's extrusion to paint. `flank` is the shaded body
     /// standing on the ground (sprites are drawn over it); `cap` is the white
     /// top face (drawn over sprites).
     private enum WallPhase { case flank, cap }
 
-    /// True 2.5D extrusion: an ink silhouette wrapping the whole solid, a
-    /// stacked warm-gray flank filling ground → top, and a white top face.
-    /// Round joins keep every corner smooth.
-    private func drawExtrudedWall(_ ctx: GraphicsContext, worldPoints: [Vec2],
-                                  closed: Bool, width: Double, height: Double,
-                                  topColor: Color = Palette.wallTop,
-                                  phase: WallPhase) {
-        let inkStyle = StrokeStyle(lineWidth: width + Self.inkLine * 2,
+    /// True 2.5D extrusion stroked from the cached level paths: an ink
+    /// silhouette wrapping the whole solid, a stacked warm-gray flank filling
+    /// ground → top, and a white top face. Round joins keep every corner
+    /// smooth.
+    private func strokeWall(_ ctx: GraphicsContext, _ wall: GolfRenderCache.Wall,
+                            engine: GolfEngine?, phase: WallPhase) {
+        let inkStyle = StrokeStyle(lineWidth: wall.width + Self.inkLine * 2,
                                    lineCap: .round, lineJoin: .round)
-        let bandStyle = StrokeStyle(lineWidth: width, lineCap: .round, lineJoin: .round)
-
-        func level(_ t: Double) -> Path {
-            levelPath(worldPoints, closed: closed, t: t, height: height)
-        }
+        let bandStyle = StrokeStyle(lineWidth: wall.width, lineCap: .round, lineJoin: .round)
 
         switch phase {
         case .flank:
             // Solid extruded side. Every ink level is drawn first and every
             // gray level after — including the top level — so the interior is
             // a single solid gray mass and no intermediate ink margin can
-            // peek through on sloped sections. Levels are packed a few pixels
-            // apart so the union silhouette stays smooth instead of
-            // scalloping.
-            let liftPx = max(1.0, height * proj.zoom * 1.28)
-            let dense = min(10, max(3, Int(liftPx / 3)))
-            for i in 0...dense {
-                ctx.stroke(level(Double(i) / Double(dense)),
-                           with: .color(Palette.ink), style: inkStyle)
+            // peek through on sloped sections.
+            for level in wall.levels {
+                ctx.stroke(level, with: .color(Palette.ink), style: inkStyle)
             }
-            for i in 0...dense {
-                ctx.stroke(level(Double(i) / Double(dense)),
-                           with: .color(Palette.wallSide), style: bandStyle)
+            for level in wall.levels {
+                ctx.stroke(level, with: .color(Palette.wallSide), style: bandStyle)
             }
         case .cap:
-            // Re-ink the top outline so it stays crisp over any sprite.
-            ctx.stroke(level(1), with: .color(Palette.ink), style: inkStyle)
-            ctx.stroke(level(1), with: .color(topColor), style: bandStyle)
+            // Re-ink the top outline so it stays crisp over any sprite. The
+            // barrier flash tint resolves here, at stroke time — never cached.
+            guard let cap = wall.levels.last else { return }
+            var top = Palette.wallTop
+            if let id = wall.barrierID, let flash = engine?.barrierFlash[id],
+               time - flash < 0.3 {
+                top = Palette.bumperCoral
+            }
+            ctx.stroke(cap, with: .color(Palette.ink), style: inkStyle)
+            ctx.stroke(cap, with: .color(top), style: bandStyle)
         }
     }
 
-    private func drawCourseShadow(_ ctx: GraphicsContext, _ ground: Path) {
-        var shadowPath = ground.strokedPath(StrokeStyle(lineWidth: bandWidth + 7,
-                                                        lineCap: .round, lineJoin: .round))
-        shadowPath.addPath(ground)
+    private func drawCourseShadow(_ ctx: GraphicsContext, _ shadowPath: Path) {
         var c = ctx
         c.translateBy(x: 3, y: 6)
         c.addFilter(.blur(radius: 3.5))
@@ -448,7 +508,7 @@ struct CourseRenderer {
         let c = proj.point(o.pos)
         let r = proj.length(o.pillarRadius, at: o.pos)
         let lift = proj.length(Self.wallHeight * 1.15, at: o.pos)
-        ctx.fill(ellipse(at: CGPoint(x: c.x + 2, y: c.y + 3), rx: r * 1.12, ry: r * 0.85),
+        ctx.fill(arcadeEllipse(at: CGPoint(x: c.x + 2, y: c.y + 3), rx: r * 1.12, ry: r * 0.85),
                  with: .color(Palette.shadow))
         // Column: capsule side (ground circle swept up to the top circle).
         var side = Path()
@@ -461,8 +521,8 @@ struct CourseRenderer {
         ctx.stroke(side, with: .color(Palette.ink),
                    style: StrokeStyle(lineWidth: Self.inkLine, lineJoin: .round))
         // White top face.
-        inkedEllipse(ctx, at: CGPoint(x: c.x, y: c.y - lift), rx: r, ry: r,
-                     fill: Palette.wallTop)
+        arcadeInkedEllipse(ctx, at: CGPoint(x: c.x, y: c.y - lift), rx: r, ry: r,
+                           fill: Palette.wallTop, ink: Self.inkLine)
     }
 
     func drawBumper(_ ctx: GraphicsContext, _ o: Obstacle, flashTime: Double?) {
@@ -478,16 +538,16 @@ struct CourseRenderer {
             }
         }
         // Life-saver ring: coral body, white band, coral center.
-        ctx.fill(ellipse(at: CGPoint(x: c.x, y: c.y + 2), rx: r * 1.05, ry: r * 0.55),
+        ctx.fill(arcadeEllipse(at: CGPoint(x: c.x, y: c.y + 2), rx: r * 1.05, ry: r * 0.55),
                  with: .color(Palette.shadow))
-        inkedEllipse(ctx, at: c, rx: r, ry: r, fill: Palette.bumperCoral)
-        ctx.stroke(ellipse(at: c, rx: r * 0.58, ry: r * 0.58),
+        arcadeInkedEllipse(ctx, at: c, rx: r, ry: r, fill: Palette.bumperCoral, ink: Self.inkLine)
+        ctx.stroke(arcadeEllipse(at: c, rx: r * 0.58, ry: r * 0.58),
                    with: .color(Palette.wallTop),
                    style: StrokeStyle(lineWidth: r * 0.34))
-        ctx.fill(ellipse(at: c, rx: r * 0.18, ry: r * 0.18),
+        ctx.fill(arcadeEllipse(at: c, rx: r * 0.18, ry: r * 0.18),
                  with: .color(Palette.wallTop))
         if glow > 0 {
-            ctx.stroke(ellipse(at: c, rx: r + 3, ry: r + 3),
+            ctx.stroke(arcadeEllipse(at: c, rx: r + 3, ry: r + 3),
                        with: .color(Color.white.opacity(glow * 0.8)),
                        style: StrokeStyle(lineWidth: 1.8))
         }
@@ -567,15 +627,15 @@ struct CourseRenderer {
     func drawHill(_ ctx: GraphicsContext, _ o: Obstacle) {
         let c = proj.point(o.pos)
         let r = proj.length(o.hillRadius, at: o.pos)
-        ctx.fill(ellipse(at: c, rx: r, ry: r * 0.9), with: .color(Palette.hillLight))
-        ctx.fill(ellipse(at: c, rx: r * 0.62, ry: r * 0.56), with: .color(Palette.hillLighter))
+        ctx.fill(arcadeEllipse(at: c, rx: r, ry: r * 0.9), with: .color(Palette.hillLight))
+        ctx.fill(arcadeEllipse(at: c, rx: r * 0.62, ry: r * 0.56), with: .color(Palette.hillLighter))
         for f in [1.0, 0.62] {
-            ctx.stroke(ellipse(at: c, rx: r * f, ry: r * f * 0.9),
+            ctx.stroke(arcadeEllipse(at: c, rx: r * f, ry: r * f * 0.9),
                        with: .color(.white.opacity(0.45)),
                        style: StrokeStyle(lineWidth: 1.2))
         }
-        ctx.fill(ellipse(at: CGPoint(x: c.x - r * 0.14, y: c.y - r * 0.2),
-                         rx: r * 0.16, ry: r * 0.12),
+        ctx.fill(arcadeEllipse(at: CGPoint(x: c.x - r * 0.14, y: c.y - r * 0.2),
+                               rx: r * 0.16, ry: r * 0.12),
                  with: .color(.white.opacity(0.4)))
     }
 
@@ -583,7 +643,7 @@ struct CourseRenderer {
     func drawVortex(_ ctx: GraphicsContext, _ o: Obstacle) {
         let c = proj.point(o.pos)
         let r = proj.length(o.vortexRadius, at: o.pos)
-        ctx.fill(ellipse(at: c, rx: r, ry: r * 0.92), with: .color(Palette.deepGreen))
+        ctx.fill(arcadeEllipse(at: c, rx: r, ry: r * 0.92), with: .color(Palette.deepGreen))
         // Spiraling arcs winding inward.
         for k in 0..<3 {
             let rr = r * (0.3 + 0.24 * Double(k))
@@ -594,7 +654,7 @@ struct CourseRenderer {
             ctx.stroke(arc, with: .color(.white.opacity(0.42)),
                        style: StrokeStyle(lineWidth: 1.7, lineCap: .round))
         }
-        ctx.fill(ellipse(at: c, rx: r * 0.13, ry: r * 0.11),
+        ctx.fill(arcadeEllipse(at: c, rx: r * 0.13, ry: r * 0.11),
                  with: .color(Palette.cup))
     }
 
@@ -602,7 +662,7 @@ struct CourseRenderer {
     /// apart: the mouth is a solid disc with a spinning swirl (in), the pad a
     /// light disc with a ring and rotating dash target (out). A ridden pair
     /// is spent: it fades out and never comes back.
-    func drawPortal(_ ctx: GraphicsContext, _ o: Obstacle, engine: GameEngine?) {
+    func drawPortal(_ ctx: GraphicsContext, _ o: Obstacle, index: Int, engine: GolfEngine?) {
         var alpha = 1.0
         if let engine {
             if let fadeStart = engine.portalFadeStart[o.id] {
@@ -612,8 +672,6 @@ struct CourseRenderer {
         }
         var c = ctx
         if alpha < 1 { c.opacity = alpha }
-        let index = hole.obstacles.filter { $0.kind == .portal }
-            .firstIndex { $0.id == o.id } ?? 0
         let hue = Palette.portalHue(index)
         drawPortalMouth(c, at: o.pos, hue: hue)
         drawPortalPad(c, at: o.portalExit, hue: hue)
@@ -633,7 +691,7 @@ struct CourseRenderer {
         let c = proj.point(world)
         let r = proj.length(10, at: world)
         let sq = 0.9
-        func disc(_ rx: Double) -> Path { ellipse(at: c, rx: rx, ry: rx * sq) }
+        func disc(_ rx: Double) -> Path { arcadeEllipse(at: c, rx: rx, ry: rx * sq) }
 
         ctx.fill(disc(r), with: .color(hue.main))
         ctx.stroke(disc(r), with: .color(Palette.ink),
@@ -658,7 +716,7 @@ struct CourseRenderer {
         let c = proj.point(world)
         let r = proj.length(10, at: world)
         let sq = 0.9
-        func disc(_ rx: Double) -> Path { ellipse(at: c, rx: rx, ry: rx * sq) }
+        func disc(_ rx: Double) -> Path { arcadeEllipse(at: c, rx: rx, ry: rx * sq) }
 
         ctx.fill(disc(r), with: .color(hue.light))
         ctx.stroke(disc(r), with: .color(Palette.ink),
@@ -686,12 +744,12 @@ struct CourseRenderer {
             let petal = 1.6 * o.scale
             for p in 0..<5 {
                 let pa = Double(p) / 5 * 2 * .pi + a
-                ctx.fill(ellipse(at: CGPoint(x: c.x + cos(pa) * petal * 1.5,
-                                             y: c.y + sin(pa) * petal * 1.5),
-                                 rx: petal, ry: petal),
+                ctx.fill(arcadeEllipse(at: CGPoint(x: c.x + cos(pa) * petal * 1.5,
+                                                   y: c.y + sin(pa) * petal * 1.5),
+                                       rx: petal, ry: petal),
                          with: .color(.white.opacity(0.92)))
             }
-            ctx.fill(ellipse(at: c, rx: petal * 0.8, ry: petal * 0.8),
+            ctx.fill(arcadeEllipse(at: c, rx: petal * 0.8, ry: petal * 0.8),
                      with: .color(Palette.gold))
         }
     }
@@ -717,9 +775,9 @@ struct CourseRenderer {
         }
 
         // Housing + rotor.
-        ctx.fill(ellipse(at: CGPoint(x: c.x, y: c.y + 2), rx: r, ry: r * 0.5),
+        ctx.fill(arcadeEllipse(at: CGPoint(x: c.x, y: c.y + 2), rx: r, ry: r * 0.5),
                  with: .color(Palette.shadow))
-        inkedEllipse(ctx, at: c, rx: r, ry: r, fill: Palette.fanGray, ink: 1.4)
+        arcadeInkedEllipse(ctx, at: c, rx: r, ry: r, fill: Palette.fanGray, ink: 1.4)
         var blades = Path()
         for b in 0..<3 {
             let a = time * 7 + Double(b) * (.pi * 2 / 3)
@@ -729,14 +787,14 @@ struct CourseRenderer {
         }
         ctx.stroke(blades, with: .color(.white),
                    style: StrokeStyle(lineWidth: 2.6, lineCap: .round))
-        ctx.fill(ellipse(at: c, rx: r * 0.22, ry: r * 0.22), with: .color(Palette.ink))
+        ctx.fill(arcadeEllipse(at: c, rx: r * 0.22, ry: r * 0.22), with: .color(Palette.ink))
     }
 
     /// Round cartoon tree; the trunk is a small solid collider.
     func drawTree(_ ctx: GraphicsContext, _ o: Obstacle) {
         let c = proj.point(o.pos)
         let s = proj.zoom * proj.factor(o.pos) * o.scale
-        ctx.fill(ellipse(at: CGPoint(x: c.x + 2, y: c.y + 2.5), rx: 9 * s, ry: 4.5 * s),
+        ctx.fill(arcadeEllipse(at: CGPoint(x: c.x + 2, y: c.y + 2.5), rx: 9 * s, ry: 4.5 * s),
                  with: .color(Palette.shadow))
         // Trunk.
         var trunk = Path()
@@ -749,10 +807,10 @@ struct CourseRenderer {
         // Foliage cluster.
         let blobs: [(Double, Double, Double)] = [(-6, -14, 6.5), (6, -14, 6.5), (0, -20, 8)]
         for (dx, dy, br) in blobs {
-            inkedEllipse(ctx, at: CGPoint(x: c.x + dx * s, y: c.y + dy * s),
-                         rx: br * s, ry: br * s, fill: Palette.treeGreen, ink: 1.4)
+            arcadeInkedEllipse(ctx, at: CGPoint(x: c.x + dx * s, y: c.y + dy * s),
+                               rx: br * s, ry: br * s, fill: Palette.treeGreen, ink: 1.4)
         }
-        ctx.fill(ellipse(at: CGPoint(x: c.x - 3 * s, y: c.y - 20 * s), rx: 2.4 * s, ry: 2 * s),
+        ctx.fill(arcadeEllipse(at: CGPoint(x: c.x - 3 * s, y: c.y - 20 * s), rx: 2.4 * s, ry: 2 * s),
                  with: .color(.white.opacity(0.25)))
     }
 
@@ -776,7 +834,7 @@ struct CourseRenderer {
         ctx.stroke(arms, with: .color(Palette.wallTop),
                    style: StrokeStyle(lineWidth: 3.6, lineCap: .round))
         let hubR = proj.length(4.5, at: o.pos)
-        inkedEllipse(ctx, at: c, rx: hubR, ry: hubR, fill: Palette.gold)
+        arcadeInkedEllipse(ctx, at: c, rx: hubR, ry: hubR, fill: Palette.gold, ink: Self.inkLine)
     }
 
     func drawCoin(_ ctx: GraphicsContext, _ o: Obstacle) {
@@ -785,11 +843,11 @@ struct CourseRenderer {
         let squash = abs(sin(time * 2.4 + o.seed * 6.28))
         let rx = r * (0.3 + 0.7 * squash)
         let bob = sin(time * 2.4 + o.seed * 6.28 + 1.2) * 1.2
-        ctx.fill(ellipse(at: CGPoint(x: c.x, y: c.y + 2), rx: r * 0.8, ry: r * 0.35),
+        ctx.fill(arcadeEllipse(at: CGPoint(x: c.x, y: c.y + 2), rx: r * 0.8, ry: r * 0.35),
                  with: .color(Palette.shadow))
         let center = CGPoint(x: c.x, y: c.y - 4 - bob)
-        inkedEllipse(ctx, at: center, rx: rx, ry: r, fill: Palette.gold, ink: 1.3)
-        ctx.stroke(ellipse(at: center, rx: rx * 0.6, ry: r * 0.6),
+        arcadeInkedEllipse(ctx, at: center, rx: rx, ry: r, fill: Palette.gold, ink: 1.3)
+        ctx.stroke(arcadeEllipse(at: center, rx: rx * 0.6, ry: r * 0.6),
                    with: .color(Palette.goldDeep), style: StrokeStyle(lineWidth: 1.2))
     }
 
@@ -797,9 +855,9 @@ struct CourseRenderer {
 
     func drawCup(_ ctx: GraphicsContext) {
         let c = proj.point(hole.cup)
-        let r = proj.length(GameEngine.cupRadius, at: hole.cup)
-        inkedEllipse(ctx, at: c, rx: r, ry: r * 0.84, fill: Palette.cup, ink: Self.inkLine)
-        ctx.fill(ellipse(at: CGPoint(x: c.x, y: c.y - r * 0.1), rx: r * 0.72, ry: r * 0.55),
+        let r = proj.length(GolfEngine.cupRadius, at: hole.cup)
+        arcadeInkedEllipse(ctx, at: c, rx: r, ry: r * 0.84, fill: Palette.cup, ink: Self.inkLine)
+        ctx.fill(arcadeEllipse(at: CGPoint(x: c.x, y: c.y - r * 0.1), rx: r * 0.72, ry: r * 0.55),
                  with: .color(Color.black.opacity(0.8)))
     }
 
@@ -826,11 +884,11 @@ struct CourseRenderer {
                    style: StrokeStyle(lineWidth: 1.3, lineJoin: .round))
     }
 
-    func drawBall(_ ctx: GraphicsContext, engine: GameEngine) {
+    func drawBall(_ ctx: GraphicsContext, engine: GolfEngine) {
         let p = proj.point(engine.ballPos)
-        let r = proj.length(GameEngine.ballRadius, at: engine.ballPos) * engine.ballDrawScale
+        let r = proj.length(GolfEngine.ballRadius, at: engine.ballPos) * engine.ballDrawScale
         guard r > 0.3 else { return }
-        ctx.fill(ellipse(at: CGPoint(x: p.x, y: p.y + r * 0.55), rx: r * 1.0, ry: r * 0.45),
+        ctx.fill(arcadeEllipse(at: CGPoint(x: p.x, y: p.y + r * 0.55), rx: r * 1.0, ry: r * 0.45),
                  with: .color(Palette.shadow))
 
         // Squash against whatever it just hit; stretch along its motion.
@@ -848,8 +906,8 @@ struct CourseRenderer {
             let s = min(speed / 1500, 0.18)
             g.scaleBy(x: 1 + s, y: 1 - s * 0.7)
         }
-        inkedEllipse(g, at: .zero, rx: r, ry: r, fill: Palette.wallTop, ink: Self.inkLine)
-        g.fill(ellipse(at: CGPoint(x: -r * 0.3, y: -r * 0.35), rx: r * 0.26, ry: r * 0.2),
+        arcadeInkedEllipse(g, at: .zero, rx: r, ry: r, fill: Palette.wallTop, ink: Self.inkLine)
+        g.fill(arcadeEllipse(at: CGPoint(x: -r * 0.3, y: -r * 0.35), rx: r * 0.26, ry: r * 0.2),
                with: .color(.white.opacity(0.9)))
     }
 
@@ -871,13 +929,13 @@ struct CourseRenderer {
 
     // MARK: Aim preview & particles
 
-    func drawAim(_ ctx: GraphicsContext, engine: GameEngine) {
+    func drawAim(_ ctx: GraphicsContext, engine: GolfEngine) {
         guard engine.canAim, let shot = engine.aimShot else {
             if engine.state == .ready {
                 let p = proj.point(engine.ballPos)
                 let pulse = (sin(time * 2.4) + 1) / 2
-                let r = proj.length(GameEngine.ballRadius, at: engine.ballPos) + 3.5 + pulse * 2
-                ctx.stroke(ellipse(at: CGPoint(x: p.x, y: p.y - 1), rx: r, ry: r),
+                let r = proj.length(GolfEngine.ballRadius, at: engine.ballPos) + 3.5 + pulse * 2
+                ctx.stroke(arcadeEllipse(at: CGPoint(x: p.x, y: p.y - 1), rx: r, ry: r),
                            with: .color(Palette.ink.opacity(0.4 - pulse * 0.22)),
                            style: StrokeStyle(lineWidth: 1.4))
             }
@@ -908,7 +966,7 @@ struct CourseRenderer {
             let world = engine.ballPos + shot.dir * d
             let p = proj.point(world)
             let size = (2.1 + t * 1.5) * (0.6 + 0.4 * fade)
-            let dot = ellipse(at: CGPoint(x: p.x, y: p.y - 1), rx: size, ry: size)
+            let dot = arcadeEllipse(at: CGPoint(x: p.x, y: p.y - 1), rx: size, ry: size)
             ctx.fill(dot, with: .color(fill.opacity(fade)))
             ctx.stroke(dot, with: .color(Palette.ink.opacity(fade)),
                        style: StrokeStyle(lineWidth: 1.1))
@@ -930,7 +988,7 @@ struct CourseRenderer {
 
         // Power ring around the ball.
         let p = proj.point(engine.ballPos)
-        let r = proj.length(GameEngine.ballRadius, at: engine.ballPos) + 4.5
+        let r = proj.length(GolfEngine.ballRadius, at: engine.ballPos) + 4.5
         var track = Path()
         track.addEllipse(in: CGRect(x: p.x - r, y: p.y - 1 - r, width: r * 2, height: r * 2))
         ctx.stroke(track, with: .color(Palette.ink.opacity(0.25)),
@@ -950,30 +1008,9 @@ struct CourseRenderer {
             let a = max(0, particle.life / particle.maxLife)
             let p = proj.point(particle.pos)
             let s = particle.size
-            let color: Color
-            switch particle.hue {
-            case .gold: color = Palette.gold
-            case .shard: color = Palette.wallTop
-            case .grass: color = Palette.fairwayStripe
-            case .white: color = .white
-            case .confetti(let i):
-                color = Palette.confettiColors[i % Palette.confettiColors.count]
-            }
+            let color = particleColor(particle.hue, shard: Palette.wallTop)
             ctx.fill(Path(ellipseIn: CGRect(x: p.x - s / 2, y: p.y - s / 2, width: s, height: s)),
                      with: .color(color.opacity(a)))
         }
-    }
-
-    // MARK: Path helpers
-
-    private func ellipse(at c: CGPoint, rx: Double, ry: Double) -> Path {
-        Path(ellipseIn: CGRect(x: c.x - rx, y: c.y - ry, width: rx * 2, height: ry * 2))
-    }
-
-    private func inkedEllipse(_ ctx: GraphicsContext, at c: CGPoint, rx: Double, ry: Double,
-                              fill: Color, ink: Double = 1.6) {
-        let path = ellipse(at: c, rx: rx, ry: ry)
-        ctx.fill(path, with: .color(fill))
-        ctx.stroke(path, with: .color(Palette.ink), style: StrokeStyle(lineWidth: ink))
     }
 }

@@ -1,6 +1,6 @@
 //
 //  Models.swift
-//  Minigames Watch App
+//  Watch Minigames Watch App
 //
 //  Data model for holes and obstacles. Everything is Codable so custom
 //  courses persist as plain JSON.
@@ -64,16 +64,57 @@ enum ObstacleKind: String, Codable, CaseIterable {
 }
 
 struct Obstacle: Codable, Identifiable, Hashable {
-    var id = UUID()
+    var id: UUID
     var kind: ObstacleKind
     var pos: Vec2
     /// Rotation in radians. Boost pads launch along `rotated up`, arcs orient
     /// their covered span, barriers align their long axis.
-    var rot: Double = 0
-    var scale: Double = 1
+    var rot: Double
+    var scale: Double
     /// Kind-specific extra parameter: arc span in degrees for `arcWall`
     /// (0 → default 160°).
-    var extra: Double = 0
+    var extra: Double
+    /// Stable per-instance seed for decorative jitter — hashed from `id`
+    /// once here instead of on every access (drawing reads it per frame).
+    let seed: Double
+
+    init(id: UUID = UUID(), kind: ObstacleKind, pos: Vec2, rot: Double = 0,
+         scale: Double = 1, extra: Double = 0) {
+        self.id = id
+        self.kind = kind
+        self.pos = pos
+        self.rot = rot
+        self.scale = scale
+        self.extra = extra
+        self.seed = Self.jitterSeed(for: id)
+    }
+
+    /// `seed` never persists — it is re-derived from `id` on decode, so
+    /// stored courses keep their exact JSON shape.
+    private enum CodingKeys: String, CodingKey {
+        case id, kind, pos, rot, scale, extra
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let id = try c.decode(UUID.self, forKey: .id)
+        self.id = id
+        self.kind = try c.decode(ObstacleKind.self, forKey: .kind)
+        self.pos = try c.decode(Vec2.self, forKey: .pos)
+        self.rot = try c.decode(Double.self, forKey: .rot)
+        self.scale = try c.decode(Double.self, forKey: .scale)
+        self.extra = try c.decode(Double.self, forKey: .extra)
+        self.seed = Self.jitterSeed(for: id)
+    }
+
+    /// FNV-1a over the uuid string, folded to 0..<1.
+    private static func jitterSeed(for id: UUID) -> Double {
+        var h: UInt64 = 1469598103934665603
+        for b in id.uuidString.utf8 {
+            h = (h ^ UInt64(b)) &* 1099511628211
+        }
+        return Double(h % 1000) / 1000.0
+    }
 }
 
 extension Obstacle {
@@ -100,15 +141,6 @@ extension Obstacle {
 
     /// Unit direction for rot (rot = 0 points "up" the course, toward -y).
     var direction: Vec2 { Vec2(sin(rot), -cos(rot)) }
-
-    /// Stable per-instance seed for decorative jitter.
-    var seed: Double {
-        var h: UInt64 = 1469598103934665603
-        for b in id.uuidString.utf8 {
-            h = (h ^ UInt64(b)) &* 1099511628211
-        }
-        return Double(h % 1000) / 1000.0
-    }
 
     /// Sampled polyline for arc walls (world space).
     var arcPoints: [Vec2] {

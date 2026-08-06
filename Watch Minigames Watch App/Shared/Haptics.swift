@@ -1,6 +1,6 @@
 //
 //  Haptics.swift
-//  Minigames Watch App
+//  Watch Minigames Watch App
 //
 //  Thin rate-limited wrapper around WKInterfaceDevice haptics.
 //

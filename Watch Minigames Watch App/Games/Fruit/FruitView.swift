@@ -1,6 +1,6 @@
 //
 //  FruitView.swift
-//  Minigames Watch App
+//  Watch Minigames Watch App
 //
 //  Fruit Drop: slide the basket with a drag or the crown and catch the
 //  falling fruit. Bombs go bang, dropped fruit costs a heart.
@@ -50,6 +50,8 @@ final class FruitEngine {
     var floaters: [Floater] = []
     var lastCatchAt = -10.0
     var lastOuchAt = -10.0
+    /// Fires whenever the score or the streak moves, with the new pair.
+    var onHUDChange: (((score: Int, streak: Int)) -> Void)?
     var onGameOver: ((Int) -> Void)?
 
     private var lastDate: Date?
@@ -68,7 +70,7 @@ final class FruitEngine {
         lastDate = date
         time += dt
         shakeAmp *= exp(-7 * dt)
-        updateParticles(dt)
+        updateParticles(&particles, dt: dt, drag: 3.0)
         floaters.removeAll { time - $0.bornAt > 0.8 }
         ripples.removeAll { time - $0.at > 0.55 }
         guard !done else { return }
@@ -144,6 +146,7 @@ final class FruitEngine {
         } else {
             Haptics.play(.click, minInterval: 0)
         }
+        notifyMainAsync(onHUDChange, (score: score, streak: streak))
     }
 
     private func missed(_ item: Item) {
@@ -158,13 +161,12 @@ final class FruitEngine {
         lastOuchAt = time
         shakeAmp = boom ? 5 : 3
         if boom { spawnBoom(at: p) }
+        notifyMainAsync(onHUDChange, (score: score, streak: streak))
         Haptics.play(.failure, minInterval: 0)
         if hearts <= 0 {
             done = true
             items.removeAll()
-            let final = score
-            let cb = onGameOver
-            DispatchQueue.main.async { cb?(final) }
+            notifyMainAsync(onGameOver, score)
         }
     }
 
@@ -183,16 +185,6 @@ final class FruitEngine {
 
     // MARK: Particles
 
-    private func updateParticles(_ dt: Double) {
-        guard !particles.isEmpty else { return }
-        for i in particles.indices {
-            particles[i].life -= dt
-            particles[i].pos += particles[i].vel * dt
-            particles[i].vel = particles[i].vel * exp(-3.0 * dt)
-        }
-        particles.removeAll { $0.life <= 0 }
-    }
-
     private func spawnJuice(at p: Vec2, kind: Kind) {
         // Confetti hues that read as juice for each fruit.
         let hueIndex: Int
@@ -200,7 +192,7 @@ final class FruitEngine {
         case .apple: hueIndex = 1
         case .orange: hueIndex = 0
         case .plum: hueIndex = 3
-        case .bomb: hueIndex = 5
+        case .bomb: return   // caught() diverts bombs before any juice spawns
         }
         for _ in 0..<7 {
             let a = Double.random(in: (-2.6)...(-0.5))
@@ -225,15 +217,8 @@ final class FruitEngine {
     }
 
     private func spawnBoom(at p: Vec2) {
-        for k in 0..<12 {
-            let a = Double.random(in: 0..<(2 * .pi))
-            let life = Double.random(in: 0.35...0.6)
-            particles.append(Particle(
-                pos: p, vel: Vec2(cos(a), sin(a)) * Double.random(in: 60...130),
-                life: life, maxLife: life,
-                size: Double.random(in: 1.8...3.2),
-                hue: k % 3 == 0 ? .gold : .shard))
-        }
+        spawnRadialBurst(into: &particles, at: p, count: 12, speed: 60...130,
+                         life: 0.35...0.6, size: 1.8...3.2) { $0 % 3 == 0 ? .gold : .shard }
     }
 }
 
@@ -244,33 +229,36 @@ struct FruitView: View {
 
     @State private var engine = FruitEngine()
     @State private var crown = 0.5
+    @State private var score = 0
+    @State private var streak = 0
+    @State private var chipFlash = 0.0
     @State private var finalScore: Int? = nil
     @State private var wasBest = false
+    /// Game over and every send-off effect has played out — freezes the
+    /// render clock behind the result card.
+    @State private var settled = false
     @State private var dragStartX: Double? = nil
 
     var body: some View {
-        GeometryReader { geo in
-            ZStack {
-                TimelineView(.animation) { timeline in
-                    // Rebuilt every frame, so the badge tracks the engine.
-                    ZStack(alignment: .topTrailing) {
-                        canvasView(size: geo.size, date: timeline.date)
-                        scoreBadge
-                    }
-                }
-                if let score = finalScore {
-                    ResultCard(title: "Caught \(score)",
-                               subtitle: wasBest && score > 0
-                                   ? "New Best" : "Best \(store.arcadeBest("fruit"))",
-                               titleGold: score > 0,
-                               subtitleGold: wasBest && score > 0) {
-                        engine.reset()
-                        withAnimation { finalScore = nil }
-                    }
+        ArcadeScreen(extraPaused: settled) { size, date in
+            canvasView(size: size, date: date)
+        } chip: {
+            scoreBadge
+        } overlay: {
+            if let score = finalScore {
+                ResultCard(title: "Caught \(score)",
+                           subtitle: wasBest && score > 0
+                               ? "New Best" : "Best \(store.arcadeBest("fruit"))",
+                           titleGold: score > 0,
+                           subtitleGold: wasBest && score > 0) {
+                    self.score = 0
+                    streak = 0
+                    settled = false
+                    engine.reset()
+                    withAnimation { finalScore = nil }
                 }
             }
         }
-        .ignoresSafeArea()
         .focusable()
         .digitalCrownRotation($crown, from: 0, through: 1, by: 0.001,
                               sensitivity: .low, isContinuous: false,
@@ -279,9 +267,24 @@ struct FruitView: View {
             engine.basketTarget = newValue * engine.courtW
         }
         .onAppear {
+            engine.onHUDChange = { hud in
+                // Only a rising score pops the chip — a miss just resets the
+                // pips.
+                if hud.score > score {
+                    chipFlash = 1
+                    withAnimation(.linear(duration: 0.35)) { chipFlash = 0 }
+                }
+                score = hud.score
+                streak = hud.streak
+            }
             engine.onGameOver = { score in
                 wasBest = store.recordArcadeBest("fruit", score)
                 withAnimation(.easeOut(duration: 0.3)) { finalScore = score }
+                // Freeze once every effect has faded; a replay within the
+                // window clears the card and voids the stale timer.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                    if finalScore != nil { settled = true }
+                }
             }
         }
     }
@@ -289,12 +292,11 @@ struct FruitView: View {
     /// Glass score chip with five streak pips ticking toward the next bonus.
     private var scoreBadge: some View {
         VStack(alignment: .trailing, spacing: 4) {
-            ScoreChip(score: engine.score,
-                      flash: max(0, 1 - (engine.time - engine.lastCatchAt) / 0.35))
+            ScoreChip(score: score, flash: chipFlash)
             HStack(spacing: 3) {
                 ForEach(0..<5, id: \.self) { i in
                     Circle()
-                        .fill(i < engine.streak % 5 ? Palette.gold
+                        .fill(i < streak % 5 ? Palette.gold
                               : Palette.ink.opacity(0.15))
                         .overlay(Circle().stroke(Palette.ink.opacity(0.3), lineWidth: 0.6))
                         .frame(width: 4.5, height: 4.5)
@@ -337,14 +339,11 @@ struct FruitRenderer {
     let size: CGSize
     let time: Double
 
-    static let plumPurple = Color(red: 0.63, green: 0.53, blue: 0.79)
-    static let plumDeep = Color(red: 0.48, green: 0.39, blue: 0.63)
-
     func draw(into base: GraphicsContext) {
         var ctx = base
         if engine.shakeAmp > 0.15 {
-            ctx.translateBy(x: sin(time * 67) * engine.shakeAmp,
-                            y: cos(time * 53) * engine.shakeAmp * 0.6)
+            let shake = shakeOffset(time: time, amp: engine.shakeAmp)
+            ctx.translateBy(x: shake.width, y: shake.height)
         }
 
         ctx.fill(Path(CGRect(origin: .zero, size: size)), with: .color(Palette.bg))
@@ -461,12 +460,12 @@ struct FruitRenderer {
                                  rx: r * 0.24, ry: r * 0.18),
                    with: .color(.white.opacity(0.5)))
         case .plum:
-            arcadeInkedEllipse(g, at: c, rx: r * 0.88, ry: r * 0.95, fill: Self.plumPurple)
+            arcadeInkedEllipse(g, at: c, rx: r * 0.88, ry: r * 0.95, fill: Palette.plumPurple)
             var crease = Path()
             crease.move(to: CGPoint(x: c.x, y: c.y - r * 0.8))
             crease.addQuadCurve(to: CGPoint(x: c.x + r * 0.15, y: c.y + r * 0.5),
                                 control: CGPoint(x: c.x + r * 0.4, y: c.y - r * 0.1))
-            g.stroke(crease, with: .color(Self.plumDeep), style: StrokeStyle(lineWidth: 1.2))
+            g.stroke(crease, with: .color(Palette.plumDeep), style: StrokeStyle(lineWidth: 1.2))
             stemAndLeaf(g, at: c, r: r * 0.9)
             g.fill(arcadeEllipse(at: CGPoint(x: c.x - r * 0.3, y: c.y - r * 0.3),
                                  rx: r * 0.22, ry: r * 0.17),

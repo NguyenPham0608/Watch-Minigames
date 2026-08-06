@@ -1,6 +1,6 @@
 //
-//  GameEngine.swift
-//  Minigames Watch App
+//  GolfEngine.swift
+//  Watch Minigames Watch App
 //
 //  Fixed-timestep 2D ball physics: fairway wall collisions, obstacles,
 //  cup capture, camera follow and lightweight particles.
@@ -11,7 +11,7 @@ import CoreGraphics
 import SwiftUI
 import WatchKit
 
-enum BallState: Equatable {
+enum GolfBallState: Equatable {
     case intro          // flyover pan from cup to tee
     case ready          // at rest, can aim
     case rolling
@@ -20,12 +20,11 @@ enum BallState: Equatable {
     case done
 }
 
-enum GameEvent {
+enum GolfEvent {
     case sunk(strokes: Int)
-    case coin(total: Int)
 }
 
-final class GameEngine {
+final class GolfEngine {
 
     // MARK: Static config
 
@@ -61,11 +60,17 @@ final class GameEngine {
     private(set) var fans: [FanData] = []
     private(set) var portals: [PortalData] = []
 
+    /// True when the hole holds anything that can move or wake a resting
+    /// ball: spinner arms sweep, and hill/vortex/fan fields push on position
+    /// alone. Everything else (bumpers, boosts, sand, walls) only ever acts
+    /// on a moving ball, so a static hole can skip resting substeps outright.
+    private let hasActiveField: Bool
+
     // MARK: Dynamic state
 
     var ballPos: Vec2
     var ballVel = Vec2.zero
-    var state: BallState = .intro
+    var state: GolfBallState = .intro
     var strokes = 0
     var collectedCoins = Set<UUID>()
     var brokenBarriers = Set<UUID>()
@@ -96,7 +101,7 @@ final class GameEngine {
     /// Live drag while aiming, in screen points.
     var aimDrag: CGSize? = nil
 
-    var onEvent: ((GameEvent) -> Void)?
+    var onEvent: ((GolfEvent) -> Void)?
 
     private var lastDate: Date?
     private var accumulator = 0.0
@@ -164,6 +169,8 @@ final class GameEngine {
                 break   // purely decorative
             }
         }
+        hasActiveField = !spinners.isEmpty || !fans.isEmpty
+            || !vortices.isEmpty || !hills.isEmpty
     }
 
     // MARK: Aiming / shooting
@@ -224,19 +231,23 @@ final class GameEngine {
         updateSinking()
 
         // Substep while resting too: moving obstacles (spinners) must still
-        // collide with a stationary ball and shove it back into play.
+        // collide with a stationary ball and shove it back into play. On a
+        // hole with no active fields a resting substep is an exact no-op —
+        // skip the physics but keep draining the accumulator so the next
+        // shot picks up with the same clock phase instead of burst-stepping.
         if state == .rolling || state == .ready {
             accumulator += dt
             let h = 1.0 / 240.0
+            let simulate = state == .rolling || hasActiveField
             var steps = 0
             while accumulator >= h && steps < 24 {
-                substep(h)
+                if simulate { substep(h) }
                 accumulator -= h
                 steps += 1
             }
         }
 
-        updateParticles(dt)
+        updateParticles(&particles, dt: dt, drag: 2.6, confettiGravity: 170)
         updateCamera(dt)
     }
 
@@ -296,9 +307,7 @@ final class GameEngine {
                 pos: hole.cup + Vec2(0, -20), text: sinkTitle, bornAt: time,
                 color: strokes <= hole.par ? Palette.goldDeep : Palette.wallTop))
             Haptics.play(.success, minInterval: 0)
-            let s = strokes
-            let cb = onEvent
-            DispatchQueue.main.async { cb?(.sunk(strokes: s)) }
+            notifyMainAsync(onEvent, .sunk(strokes: strokes))
         } else {
             let e = t * t
             ballPos = sinkFrom.lerp(to: hole.cup, min(1, t * 1.6))
@@ -501,9 +510,6 @@ final class GameEngine {
                 floaters.append(Floater(pos: coin.pos + Vec2(0, -12), text: "+1",
                                         bornAt: time, color: Palette.goldDeep))
                 Haptics.play(.click, minInterval: 0)
-                let total = collectedCoins.count
-                let cb = onEvent
-                DispatchQueue.main.async { cb?(.coin(total: total)) }
             }
         }
 
@@ -622,6 +628,9 @@ final class GameEngine {
     private func updateCamera(_ dt: Double) {
         // Zoom always eases toward the crown's target, even during the intro.
         zoom += (1 - exp(-8.0 * dt)) * (zoomTarget - zoom)
+        // Settle-snap: once the ease is inside a sub-pixel margin, land it
+        // exactly so a resting scene stops changing frame to frame.
+        if abs(zoom - zoomTarget) < 0.0005 { zoom = zoomTarget }
 
         guard state != .intro else { return }
         var target = ballPos
@@ -639,22 +648,12 @@ final class GameEngine {
         let rate = state == .teleporting ? 9.0 : 6.0
         let k = 1 - exp(-rate * dt)
         cam = cam.lerp(to: target, k)
+        // 0.005 world units is ~0.01 screen points — invisible, and applied
+        // to the whole scene at once.
+        if cam.distance(to: target) < 0.005 { cam = target }
     }
 
     // MARK: Particles
-
-    private func updateParticles(_ dt: Double) {
-        guard !particles.isEmpty else { return }
-        for i in particles.indices {
-            particles[i].life -= dt
-            particles[i].pos += particles[i].vel * dt
-            particles[i].vel = particles[i].vel * exp(-2.6 * dt)
-            if case .confetti = particles[i].hue {
-                particles[i].vel.y += 170 * dt   // confetti flutters down
-            }
-        }
-        particles.removeAll { $0.life <= 0 }
-    }
 
     /// Celebration burst when the ball drops in.
     private func spawnConfetti(at p: Vec2) {

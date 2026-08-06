@@ -1,6 +1,6 @@
 //
 //  StackerView.swift
-//  Minigames Watch App
+//  Watch Minigames Watch App
 //
 //  Stacker's living room: wallpaper, wooden floor, and a tower of cartoon
 //  household objects that wobbles, leans and — eventually — tumbles.
@@ -10,38 +10,36 @@ import SwiftUI
 
 struct StackerView: View {
     @Environment(ScoreStore.self) private var store
-    @Environment(\.dismiss) private var dismiss
 
     @State private var engine = StackerEngine()
+    @State private var score = 0
+    @State private var chipFlash = 0.0
     @State private var finalScore: Int? = nil
     @State private var wasBest = false
 
     var body: some View {
-        GeometryReader { geo in
-            ZStack {
-                TimelineView(.animation) { timeline in
-                    // Rebuilt every frame, so the badge tracks the engine.
-                    ZStack(alignment: .topTrailing) {
-                        canvasView(size: geo.size, date: timeline.date)
-                        scoreBadge
-                    }
-                }
-                if let finalScore { resultOverlay(finalScore) }
-            }
+        ArcadeScreen { size, date in
+            canvasView(size: size, date: date)
+        } chip: {
+            scoreBadge
+        } overlay: {
+            if let finalScore { resultOverlay(finalScore) }
         }
-        .ignoresSafeArea()
         .onAppear {
+            engine.onScore = { s in
+                score = s
+                chipFlash = 1
+                withAnimation(.linear(duration: 0.35)) { chipFlash = 0 }
+            }
             engine.onGameOver = { score in
-                wasBest = store.recordStackerBest(score)
+                wasBest = store.recordArcadeBest("stacker", score)
                 withAnimation(.easeOut(duration: 0.3)) { finalScore = score }
             }
         }
     }
 
     private var scoreBadge: some View {
-        ScoreChip(score: engine.score,
-                  flash: max(0, 1 - (engine.time - max(engine.lastLandAt,
-                                                       engine.lastPerfectAt)) / 0.35))
+        ScoreChip(score: score, flash: chipFlash)
             .padding(.top, 42)
             .padding(.trailing, 8)
             .allowsHitTesting(false)
@@ -59,47 +57,15 @@ struct StackerView: View {
     }
 
     private func resultOverlay(_ score: Int) -> some View {
-        VStack(spacing: 6) {
-            Text("Stacked \(score)")
-                .font(.system(size: 20, weight: .bold, design: .rounded))
-                .foregroundStyle(score > 0 ? Palette.goldDeep : Palette.ink)
-            Text(wasBest && score > 0 ? "New Best" : "Best \(store.stackerBest)")
-                .font(.system(size: 12, weight: wasBest ? .semibold : .regular,
-                              design: .rounded))
-                .foregroundStyle(wasBest && score > 0 ? Palette.goldDeep
-                                 : Palette.ink.opacity(0.55))
-            HStack(spacing: 10) {
-                Button {
-                    engine.reset()
-                    withAnimation { finalScore = nil }
-                } label: {
-                    Image(systemName: "arrow.counterclockwise")
-                        .font(.system(size: 15, weight: .semibold))
-                        .frame(width: 36, height: 36)
-                        .background(Circle().fill(Palette.gold))
-                        .overlay(Circle().stroke(Palette.ink, lineWidth: 1.6))
-                        .foregroundStyle(Palette.ink)
-                }
-                .buttonStyle(.plain)
-                Button {
-                    dismiss()
-                } label: {
-                    Image(systemName: "house.fill")
-                        .font(.system(size: 14, weight: .semibold))
-                        .frame(width: 36, height: 36)
-                        .background(Circle().fill(Color.white))
-                        .overlay(Circle().stroke(Palette.ink, lineWidth: 1.6))
-                        .foregroundStyle(Palette.ink)
-                }
-                .buttonStyle(.plain)
-            }
-            .padding(.top, 4)
+        ResultCard(title: "Score \(score)",
+                   subtitle: wasBest && score > 0
+                       ? "New Best" : "Best \(store.arcadeBest("stacker"))",
+                   titleGold: score > 0,
+                   subtitleGold: wasBest && score > 0) {
+            self.score = 0
+            engine.reset()
+            withAnimation { finalScore = nil }
         }
-        .padding(.vertical, 14)
-        .padding(.horizontal, 18)
-        .background(RoundedRectangle(cornerRadius: 16).fill(.white.opacity(0.95)))
-        .overlay(RoundedRectangle(cornerRadius: 16).stroke(Palette.ink, lineWidth: 1.8))
-        .transition(.opacity.combined(with: .scale(scale: 0.9)))
     }
 }
 
@@ -112,21 +78,17 @@ struct StackerRenderer {
 
     static let objectColors: [(Color, Color)] = [
         (Palette.boostBlue, Palette.boostBlueDeep),
-        (Palette.bumperCoral, Color(red: 0.70, green: 0.34, blue: 0.27)),
+        (Palette.bumperCoral, Palette.coralDeep),
         (Palette.gold, Palette.goldDeep),
-        (Color(red: 0.63, green: 0.53, blue: 0.79), Color(red: 0.48, green: 0.39, blue: 0.63)),
-        (Color(red: 0.38, green: 0.70, blue: 0.66), Color(red: 0.27, green: 0.54, blue: 0.50)),
+        (Palette.plumPurple, Palette.plumDeep),
+        (Palette.teal, Palette.tealDeep),
     ]
-
-    private func ellipse(at c: CGPoint, rx: Double, ry: Double) -> Path {
-        Path(ellipseIn: CGRect(x: c.x - rx, y: c.y - ry, width: rx * 2, height: ry * 2))
-    }
 
     func draw(into base: GraphicsContext) {
         var ctx = base
         if engine.shakeAmp > 0.15 {
-            ctx.translateBy(x: sin(time * 67) * engine.shakeAmp,
-                            y: cos(time * 53) * engine.shakeAmp * 0.6)
+            let shake = shakeOffset(time: time, amp: engine.shakeAmp)
+            ctx.translateBy(x: shake.width, y: shake.height)
         }
 
         let cam = engine.cameraOffset
@@ -143,7 +105,7 @@ struct StackerRenderer {
         drawStack(world)
         drawFreeBodies(world)
         drawFallingAndSway(world, cam: cam)
-        drawParticles(world)
+        drawArcadeParticles(world, engine.particles)
 
         drawHUD(ctx)
     }
@@ -192,11 +154,7 @@ struct StackerRenderer {
                        with: .color(Palette.ink), style: StrokeStyle(lineWidth: 1.4))
         }
 
-        // Clock scrim.
-        ctx.fill(Path(CGRect(x: 0, y: 0, width: size.width, height: 42)),
-                 with: .linearGradient(
-                    Gradient(colors: [Color.black.opacity(0.28), .clear]),
-                    startPoint: .zero, endPoint: CGPoint(x: 0, y: 42)))
+        drawClockScrim(ctx, size: size)
     }
 
     // MARK: Tower
@@ -214,7 +172,7 @@ struct StackerRenderer {
             g.rotate(by: Angle(radians: rot))
             // Fresh landings squash for a beat.
             if i == count - 1 {
-                let squash = max(0, 1 - (time - engine.lastLandAt) / 0.16) * 0.12
+                let squash = decay(engine.lastLandAt, 0.16, now: time) * 0.12
                 g.scaleBy(x: 1 + squash, y: 1 - squash)
             }
             g.translateBy(x: -pivot.x, y: -pivot.y)
@@ -251,7 +209,7 @@ struct StackerRenderer {
 
     private func drawHUD(_ ctx: GraphicsContext) {
         // The score itself lives in a glass badge above the canvas.
-        let flash = max(0, 1 - (time - engine.lastPerfectAt) / 0.5)
+        let flash = decay(engine.lastPerfectAt, 0.5, now: time)
         if flash > 0 {
             ctx.draw(Text("PERFECT")
                 .font(.system(size: 13, weight: .heavy, design: .rounded))
@@ -262,28 +220,16 @@ struct StackerRenderer {
 
     // MARK: Objects
 
-    private func drawParticles(_ ctx: GraphicsContext) {
-        for particle in engine.particles {
-            let a = max(0, particle.life / particle.maxLife)
-            let c = CGPoint(x: particle.pos.x, y: particle.pos.y)
-            let color: Color
-            switch particle.hue {
-            case .gold: color = Palette.gold
-            case .shard: color = Palette.wallSide
-            case .grass: color = Palette.fairwayStripe
-            case .white: color = .white
-            case .confetti(let i):
-                color = Palette.confettiColors[i % Palette.confettiColors.count]
-            }
-            let r = particle.size / 2 + 0.6
-            ctx.fill(ellipse(at: c, rx: r * 2, ry: r * 2), with: .color(color.opacity(a * 0.18)))
-            ctx.fill(ellipse(at: c, rx: r, ry: r), with: .color(color.opacity(a)))
-        }
-    }
-
     /// Draws one household object with its bottom-center at (x, bottomY).
     func drawObject(_ ctx: GraphicsContext, spec: StackerEngine.Spec,
                     x: Double, bottomY: Double) {
+        Self.drawObject(ctx, spec: spec, x: x, bottomY: bottomY, time: time)
+    }
+
+    /// Static core so scenes can draw objects without building an engine;
+    /// `time` only ticks the alarm clock's second hand.
+    static func drawObject(_ ctx: GraphicsContext, spec: StackerEngine.Spec,
+                           x: Double, bottomY: Double, time: Double) {
         let (main, deep) = Self.objectColors[spec.colorIndex % Self.objectColors.count]
         let w = spec.w, h = spec.h
         let rect = CGRect(x: x - w / 2, y: bottomY - h, width: w, height: h)
@@ -357,7 +303,7 @@ struct StackerRenderer {
             ant.addLine(to: CGPoint(x: rect.minX - 2, y: rect.minY - 7))
             ctx.stroke(ant, with: .color(Palette.ink),
                        style: StrokeStyle(lineWidth: 1.6, lineCap: .round))
-            ctx.fill(ellipse(at: CGPoint(x: rect.minX - 2, y: rect.minY - 7), rx: 1.6, ry: 1.6),
+            ctx.fill(arcadeEllipse(at: CGPoint(x: rect.minX - 2, y: rect.minY - 7), rx: 1.6, ry: 1.6),
                      with: .color(Palette.ink))
             let p = rr(rect, 5)
             ctx.fill(p, with: .color(main))
@@ -369,9 +315,9 @@ struct StackerRenderer {
                 grille.addLine(to: CGPoint(x: gx, y: rect.maxY - 6))
             }
             ctx.stroke(grille, with: .color(Palette.ink.opacity(0.5)), style: StrokeStyle(lineWidth: 1.4))
-            ctx.fill(ellipse(at: CGPoint(x: rect.maxX - 9, y: rect.midY), rx: 4.5, ry: 4.5),
+            ctx.fill(arcadeEllipse(at: CGPoint(x: rect.maxX - 9, y: rect.midY), rx: 4.5, ry: 4.5),
                      with: .color(.white.opacity(0.85)))
-            ctx.stroke(ellipse(at: CGPoint(x: rect.maxX - 9, y: rect.midY), rx: 4.5, ry: 4.5),
+            ctx.stroke(arcadeEllipse(at: CGPoint(x: rect.maxX - 9, y: rect.midY), rx: 4.5, ry: 4.5),
                        with: .color(Palette.ink.opacity(0.7)), style: StrokeStyle(lineWidth: 1))
             // Tuning needle.
             var needle = Path()
@@ -395,9 +341,9 @@ struct StackerRenderer {
             lever.addLine(to: CGPoint(x: rect.maxX + 3, y: rect.minY + 8))
             ctx.stroke(lever, with: .color(Palette.ink),
                        style: StrokeStyle(lineWidth: 1.8, lineCap: .round))
-            ctx.fill(ellipse(at: CGPoint(x: rect.maxX + 3.6, y: rect.minY + 8), rx: 2, ry: 2),
+            ctx.fill(arcadeEllipse(at: CGPoint(x: rect.maxX + 3.6, y: rect.minY + 8), rx: 2, ry: 2),
                      with: .color(Palette.bumperCoral))
-            ctx.stroke(ellipse(at: CGPoint(x: rect.maxX + 3.6, y: rect.minY + 8), rx: 2, ry: 2),
+            ctx.stroke(arcadeEllipse(at: CGPoint(x: rect.maxX + 3.6, y: rect.minY + 8), rx: 2, ry: 2),
                        with: .color(Palette.ink), style: StrokeStyle(lineWidth: 1))
             // Brushed-steel sheen.
             ctx.fill(rr(CGRect(x: rect.minX + 4, y: rect.minY + 8, width: 4,
@@ -407,7 +353,7 @@ struct StackerRenderer {
             let body = rr(CGRect(x: rect.minX + 3, y: rect.minY, width: w - 10, height: h), 4)
             // Handle ring first — the body overlaps it, so the loop reads as
             // fused to the side instead of floating.
-            let ring = ellipse(at: CGPoint(x: rect.maxX - 7, y: rect.midY), rx: 5.5, ry: 5.5)
+            let ring = arcadeEllipse(at: CGPoint(x: rect.maxX - 7, y: rect.midY), rx: 5.5, ry: 5.5)
             ctx.stroke(ring, with: .color(Palette.ink), style: StrokeStyle(lineWidth: 5))
             ctx.stroke(ring, with: .color(main), style: StrokeStyle(lineWidth: 2.2))
             ctx.fill(body, with: .color(main))
@@ -448,7 +394,7 @@ struct StackerRenderer {
             water.fill(Path(CGRect(x: rect.minX, y: waterTop, width: w,
                                    height: rect.maxY - waterTop)),
                        with: .color(Palette.boostBlue.opacity(0.55)))
-            water.fill(ellipse(at: CGPoint(x: x, y: waterTop), rx: w / 2 - 1, ry: 2),
+            water.fill(arcadeEllipse(at: CGPoint(x: x, y: waterTop), rx: w / 2 - 1, ry: 2),
                        with: .color(Palette.boostBlue.opacity(0.8)))
             ctx.stroke(body, with: .color(Palette.ink), style: ink)
             let cap = rr(CGRect(x: x - 5, y: rect.minY, width: 10, height: capH + 1.5), 2)
@@ -496,12 +442,12 @@ struct StackerRenderer {
             ctx.fill(body, with: .color(main))
             ctx.stroke(body, with: .color(Palette.ink), style: ink)
             let lensC = CGPoint(x: x + 2, y: (bodyTop + rect.maxY) / 2)
-            ctx.fill(ellipse(at: lensC, rx: 6.2, ry: 6.2), with: .color(deep))
-            ctx.stroke(ellipse(at: lensC, rx: 6.2, ry: 6.2), with: .color(Palette.ink),
+            ctx.fill(arcadeEllipse(at: lensC, rx: 6.2, ry: 6.2), with: .color(deep))
+            ctx.stroke(arcadeEllipse(at: lensC, rx: 6.2, ry: 6.2), with: .color(Palette.ink),
                        style: StrokeStyle(lineWidth: 1.3))
-            ctx.fill(ellipse(at: lensC, rx: 3.6, ry: 3.6),
+            ctx.fill(arcadeEllipse(at: lensC, rx: 3.6, ry: 3.6),
                      with: .color(Palette.ink.opacity(0.85)))
-            ctx.fill(ellipse(at: CGPoint(x: lensC.x - 1.4, y: lensC.y - 1.5),
+            ctx.fill(arcadeEllipse(at: CGPoint(x: lensC.x - 1.4, y: lensC.y - 1.5),
                              rx: 1.1, ry: 1.1),
                      with: .color(.white.opacity(0.85)))
             let shutter = rr(CGRect(x: rect.maxX - 10, y: bodyTop - 2.5, width: 6, height: 3), 1.5)
@@ -525,11 +471,11 @@ struct StackerRenderer {
                          with: .color(.white.opacity(0.25)))
             }
         case .clock:
-            ctx.fill(ellipse(at: CGPoint(x: x, y: rect.midY), rx: w / 2, ry: w / 2),
+            ctx.fill(arcadeEllipse(at: CGPoint(x: x, y: rect.midY), rx: w / 2, ry: w / 2),
                      with: .color(main))
-            ctx.stroke(ellipse(at: CGPoint(x: x, y: rect.midY), rx: w / 2, ry: w / 2),
+            ctx.stroke(arcadeEllipse(at: CGPoint(x: x, y: rect.midY), rx: w / 2, ry: w / 2),
                        with: .color(Palette.ink), style: ink)
-            ctx.fill(ellipse(at: CGPoint(x: x, y: rect.midY), rx: w / 2 - 4, ry: w / 2 - 4),
+            ctx.fill(arcadeEllipse(at: CGPoint(x: x, y: rect.midY), rx: w / 2 - 4, ry: w / 2 - 4),
                      with: .color(.white))
             var hands = Path()
             hands.move(to: CGPoint(x: x, y: rect.midY))
@@ -544,10 +490,10 @@ struct StackerRenderer {
             sec.addLine(to: CGPoint(x: x + cos(secA) * 7, y: rect.midY + sin(secA) * 7))
             ctx.stroke(sec, with: .color(Palette.bumperCoral),
                        style: StrokeStyle(lineWidth: 1.1, lineCap: .round))
-            ctx.fill(ellipse(at: CGPoint(x: x, y: rect.midY), rx: 1.2, ry: 1.2),
+            ctx.fill(arcadeEllipse(at: CGPoint(x: x, y: rect.midY), rx: 1.2, ry: 1.2),
                      with: .color(Palette.ink))
             // Bell crown — the risky little perch on top.
-            let bell = ellipse(at: CGPoint(x: x, y: rect.minY + 2), rx: 5, ry: 2.6)
+            let bell = arcadeEllipse(at: CGPoint(x: x, y: rect.minY + 2), rx: 5, ry: 2.6)
             ctx.fill(bell, with: .color(deep))
             ctx.stroke(bell, with: .color(Palette.ink), style: StrokeStyle(lineWidth: 1.2))
         case .lamp:
@@ -568,7 +514,7 @@ struct StackerRenderer {
             ctx.fill(shade, with: .color(main))
             ctx.stroke(shade, with: .color(Palette.ink), style: ink)
             // Warm pool of light spilling out under the shade.
-            ctx.fill(ellipse(at: CGPoint(x: x, y: rect.minY + 16.5), rx: 10, ry: 4),
+            ctx.fill(arcadeEllipse(at: CGPoint(x: x, y: rect.minY + 16.5), rx: 10, ry: 4),
                      with: .color(Palette.gold.opacity(0.3)))
             // Pull chain.
             var chain = Path()
@@ -576,7 +522,7 @@ struct StackerRenderer {
             chain.addLine(to: CGPoint(x: x + 11, y: rect.minY + 18))
             ctx.stroke(chain, with: .color(Palette.ink.opacity(0.7)),
                        style: StrokeStyle(lineWidth: 1.1))
-            ctx.fill(ellipse(at: CGPoint(x: x + 11, y: rect.minY + 19.5), rx: 1.5, ry: 1.5),
+            ctx.fill(arcadeEllipse(at: CGPoint(x: x + 11, y: rect.minY + 19.5), rx: 1.5, ry: 1.5),
                      with: .color(Palette.gold))
         }
     }

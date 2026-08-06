@@ -1,6 +1,6 @@
 //
-//  GameView.swift
-//  Minigames Watch App
+//  GolfView.swift
+//  Watch Minigames Watch App
 //
 //  Playable hole(s): canvas + slingshot gesture + result overlays. Handles
 //  single holes, full rounds, and editor test sessions.
@@ -8,7 +8,7 @@
 
 import SwiftUI
 
-struct GameView: View {
+struct GolfView: View {
     let holes: [HoleDesign]
     var isRound: Bool = false
     /// Editor test session: minimal chrome, "Done" returns to the editor.
@@ -18,10 +18,12 @@ struct GameView: View {
     @Environment(\.dismiss) private var dismiss
 
     @State private var index = 0
-    @State private var engine: GameEngine
+    @State private var engine: GolfEngine
+    @State private var renderCache: GolfRenderCache
     @State private var result: HoleResult? = nil
     @State private var roundStrokes: [Int] = []
     @State private var showScorecard = false
+    @State private var roundWasBest = false
     @State private var crownZoom = 1.0
 
     struct HoleResult {
@@ -31,20 +33,22 @@ struct GameView: View {
     }
 
     init(holes: [HoleDesign], isRound: Bool = false, isPractice: Bool = false) {
-        self.holes = holes
+        // Never trust an empty list — a placeholder hole beats a crash.
+        let safeHoles = holes.isEmpty ? [HoleDesign.newCustom(number: 1)] : holes
+        self.holes = safeHoles
         self.isRound = isRound
         self.isPractice = isPractice
-        _engine = State(initialValue: GameEngine(hole: holes[0]))
+        _engine = State(initialValue: GolfEngine(hole: safeHoles[0]))
+        _renderCache = State(initialValue: GolfRenderCache(hole: safeHoles[0]))
     }
 
     private var hole: HoleDesign { holes[index] }
 
     var body: some View {
-        GeometryReader { geo in
-            ZStack {
-                TimelineView(.animation) { timeline in
-                    canvasView(size: geo.size, date: timeline.date)
-                }
+        ArcadeScreen { size, date in
+            canvasView(size: size, date: date)
+        } overlay: {
+            Group {
                 if showScorecard {
                     scorecard
                 } else if let result {
@@ -52,7 +56,6 @@ struct GameView: View {
                 }
             }
         }
-        .ignoresSafeArea()
         .focusable()
         .digitalCrownRotation($crownZoom, from: 0.7, through: 1.5, by: 0.05,
                               sensitivity: .low, isContinuous: false,
@@ -70,8 +73,9 @@ struct GameView: View {
         let renderer = CourseRenderer(
             hole: hole,
             geo: engine.geo,
-            proj: Projection(cam: engine.cam, size: size, zoom: engine.zoom),
-            time: engine.time)
+            proj: CourseProjection(cam: engine.cam, size: size, zoom: engine.zoom),
+            time: engine.time,
+            cache: renderCache)
 
         return Canvas { ctx, _ in
             renderer.draw(into: ctx, engine: engine)
@@ -99,8 +103,6 @@ struct GameView: View {
         engine.zoomTarget = crownZoom
         engine.onEvent = { event in
             switch event {
-            case .coin:
-                break
             case .sunk(let strokes):
                 handleSunk(strokes: strokes)
             }
@@ -108,7 +110,6 @@ struct GameView: View {
     }
 
     private func handleSunk(strokes: Int) {
-        store.addCoins(engine.collectedCoins.count)
         var isBest = false
         if !isPractice {
             isBest = store.recordHole(hole, strokes: strokes)
@@ -124,11 +125,14 @@ struct GameView: View {
     }
 
     private func advance() {
+        // Coins bank once per completed hole — never in practice, and a
+        // retry discards them along with the hole.
+        if !isPractice { store.addCoins(engine.collectedCoins.count) }
         if isRound && index + 1 < holes.count {
             loadHole(index + 1)
         } else if isRound {
             let total = roundStrokes.reduce(0, +)
-            store.recordRound(total: total)
+            roundWasBest = store.recordRound(total: total)
             withAnimation { result = nil; showScorecard = true }
         } else {
             dismiss()
@@ -137,7 +141,8 @@ struct GameView: View {
 
     private func loadHole(_ newIndex: Int) {
         index = newIndex
-        engine = GameEngine(hole: holes[newIndex])
+        engine = GolfEngine(hole: holes[newIndex])
+        renderCache = GolfRenderCache(hole: holes[newIndex])
         wireEngine()
         withAnimation { result = nil }
     }
@@ -157,50 +162,23 @@ struct GameView: View {
     }
 
     private func resultOverlay(_ r: HoleResult) -> some View {
-        VStack(spacing: 6) {
-            Text(resultTitle(r))
-                .font(.system(size: 20, weight: .bold, design: .rounded))
-                .foregroundStyle(r.strokes <= r.par ? Palette.goldDeep : Palette.ink)
-            Text("\(r.strokes) stroke\(r.strokes == 1 ? "" : "s") · Par \(r.par)")
-                .font(.system(size: 12, design: .rounded))
-                .foregroundStyle(Palette.ink.opacity(0.55))
-            if r.isBestHole {
-                Text("New Best")
-                    .font(.system(size: 11, weight: .semibold, design: .rounded))
-                    .foregroundStyle(Palette.goldDeep)
-            }
-            HStack(spacing: 10) {
-                overlayButton("arrow.counterclockwise") { loadHole(index) }
-                if isPractice {
-                    overlayButton("checkmark") { dismiss() }
-                } else {
-                    overlayButton(isRound && index + 1 >= holes.count ? "flag.checkered" : "arrow.right",
-                                  prominent: true) { advance() }
-                    if !isRound {
-                        overlayButton("list.bullet") { dismiss() }
-                    }
+        ResultCard(title: resultTitle(r),
+                   subtitle: "\(r.strokes) stroke\(r.strokes == 1 ? "" : "s") · Par \(r.par)",
+                   titleGold: r.strokes <= r.par,
+                   detail: r.isBestHole ? "New Best" : nil,
+                   horizontalPadding: 16) {
+            OverlayCircleButton(symbol: "arrow.counterclockwise") { loadHole(index) }
+            if isPractice {
+                OverlayCircleButton(symbol: "checkmark") { dismiss() }
+            } else {
+                OverlayCircleButton(symbol: isRound && index + 1 >= holes.count
+                                    ? "flag.checkered" : "arrow.right",
+                                    prominent: true) { advance() }
+                if !isRound {
+                    OverlayCircleButton(symbol: "list.bullet") { dismiss() }
                 }
             }
-            .padding(.top, 4)
         }
-        .padding(.vertical, 14)
-        .padding(.horizontal, 16)
-        .background(RoundedRectangle(cornerRadius: 16).fill(.white.opacity(0.95)))
-        .overlay(RoundedRectangle(cornerRadius: 16).stroke(Palette.ink, lineWidth: 1.8))
-        .transition(.opacity.combined(with: .scale(scale: 0.9)))
-    }
-
-    private func overlayButton(_ symbol: String, prominent: Bool = false,
-                               action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Image(systemName: symbol)
-                .font(.system(size: 15, weight: .semibold))
-                .frame(width: 36, height: 36)
-                .background(Circle().fill(prominent ? Palette.gold : Color.white))
-                .overlay(Circle().stroke(Palette.ink, lineWidth: 1.6))
-                .foregroundStyle(Palette.ink)
-        }
-        .buttonStyle(.plain)
     }
 
     // MARK: Scorecard
@@ -208,7 +186,7 @@ struct GameView: View {
     private var scorecard: some View {
         let total = roundStrokes.reduce(0, +)
         let parTotal = holes.map(\.par).reduce(0, +)
-        let isNewBest = store.bestRound == total
+        let isNewBest = roundWasBest
         return ScrollView {
             VStack(spacing: 5) {
                 Text("Round Complete")

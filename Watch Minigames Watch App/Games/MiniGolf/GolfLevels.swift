@@ -1,6 +1,6 @@
 //
-//  Levels.swift
-//  Minigames Watch App
+//  GolfLevels.swift
+//  Watch Minigames Watch App
 //
 //  The built-in holes. IDs are fixed so best scores stay attached across
 //  launches (player-designed holes keep their original ids).
@@ -8,7 +8,7 @@
 
 import Foundation
 
-enum Levels {
+enum GolfLevels {
     private static func bid(_ n: Int) -> UUID {
         UUID(uuidString: String(format: "00000000-0000-4000-8000-%012d", n))!
     }
@@ -34,7 +34,7 @@ enum Levels {
             ]
         ),
 
-        // 3 — Wide-bellied opener with a coin trail up the middle.
+        // 2 — Wide-bellied opener with a coin trail up the middle.
         // (Player-designed; keeps its original id so best scores carry over.)
         HoleDesign(
             id: UUID(uuidString: "8DFA4415-D919-4DAE-9070-FBDC1DB6B897")!,
@@ -50,7 +50,7 @@ enum Levels {
             ]
         ),
 
-        // 4 — Climb, hard right, and a bumper field guarding the green.
+        // 3 — Climb, hard right, and a bumper field guarding the green.
         HoleDesign(
             id: UUID(uuidString: "D41027AF-6BE6-423B-AE36-C301D6538638")!,
             name: "Pinball Corner", par: 3,
@@ -70,7 +70,7 @@ enum Levels {
             ]
         ),
 
-        // 5 — A grand circuit that loops back over its own start.
+        // 4 — A grand circuit that loops back over its own start.
         HoleDesign(
             id: UUID(uuidString: "E5AC3C0D-D3CC-4D5E-A826-54139F840355")!,
             name: "The Loop", par: 3,
@@ -92,7 +92,7 @@ enum Levels {
             ]
         ),
 
-        // 6 — A long sideways trek: sand and coins on the flats, then a
+        // 5 — A long sideways trek: sand and coins on the flats, then a
         // guarded uphill green.
         HoleDesign(
             id: UUID(uuidString: "C9493A3C-765E-480E-B0BA-05517903EAD7")!,
@@ -114,7 +114,7 @@ enum Levels {
             ]
         ),
 
-        // 7 — Paths crossing over each other in every direction.
+        // 6 — Paths crossing over each other in every direction.
         HoleDesign(
             id: UUID(uuidString: "4CAAD5FD-1BF4-42D8-AAF1-9D071CA19D0E")!,
             name: "Crossfire", par: 3,
@@ -132,7 +132,7 @@ enum Levels {
             ]
         ),
 
-        // 8 — One long portal ride carries the ball to a far-off island green.
+        // 7 — One long portal ride carries the ball to a far-off island green.
         // (Player-designed; keeps its original id so best scores carry over.)
         HoleDesign(
             id: UUID(uuidString: "34AE8231-5BDF-4295-BF9D-3C891CB30B5F")!,
@@ -150,7 +150,7 @@ enum Levels {
             ]
         ),
 
-        // 9 — Island-hopping: each stone has a hazard and the portal onward.
+        // 8 — Island-hopping: each stone has a hazard and the portal onward.
         // (Player-designed; keeps its original id so best scores carry over.)
         HoleDesign(
             id: UUID(uuidString: "074C4E08-CAE9-48BE-8FD4-8B38DC22EC2D")!,
@@ -175,7 +175,7 @@ enum Levels {
             ]
         ),
 
-        // 10 — A bumper gauntlet, then a portal onto a tiny detached green.
+        // 9 — A bumper gauntlet, then a portal onto a tiny detached green.
         // (Player-designed; keeps its original id so best scores carry over.)
         HoleDesign(
             id: UUID(uuidString: "CE39D5FA-52A8-445D-BFDA-B3F8381B5D2B")!,
@@ -196,7 +196,7 @@ enum Levels {
             ]
         ),
 
-        // 11 — A grand tour across three islands, pinball arena included.
+        // 10 — A grand tour across three islands, pinball arena included.
         // (Player-designed; keeps its original id so best scores carry over.)
         HoleDesign(
             id: UUID(uuidString: "1E49608F-C9A9-4BA8-80AA-4B292903D123")!,

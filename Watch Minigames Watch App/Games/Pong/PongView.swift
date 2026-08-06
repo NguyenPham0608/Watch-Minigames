@@ -1,6 +1,6 @@
 //
 //  PongView.swift
-//  Minigames Watch App
+//  Watch Minigames Watch App
 //
 //  Super Pong: the golf game's flat ink style with a light futuristic twist —
 //  grid floor, glowing smash trails, particle bursts.
@@ -10,7 +10,6 @@ import SwiftUI
 
 struct PongView: View {
     @Environment(ScoreStore.self) private var store
-    @Environment(\.dismiss) private var dismiss
 
     @State private var engine = PongEngine()
     @State private var crown = 0.5
@@ -19,15 +18,11 @@ struct PongView: View {
     @State private var dragStartY: Double? = nil
 
     var body: some View {
-        GeometryReader { geo in
-            ZStack {
-                TimelineView(.animation) { timeline in
-                    canvasView(size: geo.size, date: timeline.date)
-                }
-                if let winner { resultOverlay(winner) }
-            }
+        ArcadeScreen { size, date in
+            canvasView(size: size, date: date)
+        } overlay: {
+            if let winner { resultOverlay(winner) }
         }
-        .ignoresSafeArea()
         .focusable()
         .digitalCrownRotation($crown, from: 0, through: 1, by: 0.001,
                               sensitivity: .low, isContinuous: false,
@@ -75,45 +70,13 @@ struct PongView: View {
     }
 
     private func resultOverlay(_ w: PongEngine.Side) -> some View {
-        VStack(spacing: 6) {
-            Text(w == .player ? "You Win!" : "Bot Wins")
-                .font(.system(size: 20, weight: .bold, design: .rounded))
-                .foregroundStyle(w == .player ? Palette.goldDeep : Palette.ink)
-            Text("\(engine.playerScore) – \(engine.botScore)")
-                .font(.system(size: 13, weight: .semibold, design: .rounded))
-                .foregroundStyle(Palette.ink.opacity(0.55))
-            HStack(spacing: 10) {
-                Button {
-                    engine.reset()
-                    withAnimation { winner = nil }
-                } label: {
-                    Image(systemName: "arrow.counterclockwise")
-                        .font(.system(size: 15, weight: .semibold))
-                        .frame(width: 36, height: 36)
-                        .background(Circle().fill(Palette.gold))
-                        .overlay(Circle().stroke(Palette.ink, lineWidth: 1.6))
-                        .foregroundStyle(Palette.ink)
-                }
-                .buttonStyle(.plain)
-                Button {
-                    dismiss()
-                } label: {
-                    Image(systemName: "house.fill")
-                        .font(.system(size: 14, weight: .semibold))
-                        .frame(width: 36, height: 36)
-                        .background(Circle().fill(Color.white))
-                        .overlay(Circle().stroke(Palette.ink, lineWidth: 1.6))
-                        .foregroundStyle(Palette.ink)
-                }
-                .buttonStyle(.plain)
-            }
-            .padding(.top, 4)
+        ResultCard(title: w == .player ? "You Win!" : "Bot Wins",
+                   subtitle: "\(engine.playerScore) – \(engine.botScore)",
+                   titleGold: w == .player,
+                   subtitleSize: 13, subtitleSemibold: true) {
+            engine.reset()
+            withAnimation { winner = nil }
         }
-        .padding(.vertical, 14)
-        .padding(.horizontal, 18)
-        .background(RoundedRectangle(cornerRadius: 16).fill(.white.opacity(0.95)))
-        .overlay(RoundedRectangle(cornerRadius: 16).stroke(Palette.ink, lineWidth: 1.8))
-        .transition(.opacity.combined(with: .scale(scale: 0.9)))
     }
 }
 
@@ -129,24 +92,11 @@ struct PongRenderer {
         CGPoint(x: origin.x + p.x, y: origin.y + p.y)
     }
 
-    private func ellipse(at c: CGPoint, rx: Double, ry: Double) -> Path {
-        Path(ellipseIn: CGRect(x: c.x - rx, y: c.y - ry, width: rx * 2, height: ry * 2))
-    }
-
-    private func ellipse(at c: CGPoint, r: Double) -> Path {
-        ellipse(at: c, rx: r, ry: r)
-    }
-
-    /// 1 → 0 decay over `dur` seconds since `at`.
-    private func decay(_ at: Double, _ dur: Double) -> Double {
-        max(0, 1 - (time - at) / dur)
-    }
-
     func draw(into base: GraphicsContext) {
         var ctx = base
         if engine.shakeAmp > 0.15 {
-            ctx.translateBy(x: sin(time * 71) * engine.shakeAmp,
-                            y: cos(time * 57) * engine.shakeAmp * 0.6)
+            let shake = shakeOffset(time: time, amp: engine.shakeAmp)
+            ctx.translateBy(x: shake.width, y: shake.height)
         }
 
         drawBackground(ctx)
@@ -157,12 +107,18 @@ struct PongRenderer {
         drawTrail(ctx)
         drawPaddles(ctx)
         drawBall(ctx)
-        drawParticles(ctx)
+        drawArcadeParticles(ctx, engine.particles)
         drawCharge(ctx)
         drawServe(ctx)
     }
 
     // MARK: Stage
+
+    // The court dressing never changes color at rest — build these once
+    // instead of per frame.
+    private static let vignetteGradient = Gradient(colors: [.clear, Palette.ink.opacity(0.10)])
+    private static let leftGoalResting = Gradient(colors: [Palette.bumperCoral.opacity(0.10), .clear])
+    private static let rightGoalResting = Gradient(colors: [.clear, Palette.boostBlue.opacity(0.10)])
 
     private func drawBackground(_ ctx: GraphicsContext) {
         let all = CGRect(origin: .zero, size: size)
@@ -177,12 +133,12 @@ struct PongRenderer {
 
         // Soft vignette pulls focus to the middle.
         ctx.fill(Path(all), with: .radialGradient(
-            Gradient(colors: [.clear, Palette.ink.opacity(0.10)]),
+            Self.vignetteGradient,
             center: CGPoint(x: size.width / 2, y: size.height / 2),
             startRadius: size.width * 0.35, endRadius: size.height * 0.85))
 
         // Goal glow strips, flaring in the scorer's color on a point.
-        let flash = decay(engine.lastScoreAt, 0.6)
+        let flash = decay(engine.lastScoreAt, 0.6, now: time)
         let goalW = 20.0
         var leftA = 0.10, rightA = 0.10
         if let side = engine.lastScoreSide, flash > 0 {
@@ -191,19 +147,17 @@ struct PongRenderer {
         }
         ctx.fill(Path(CGRect(x: 0, y: 0, width: goalW, height: size.height)),
                  with: .linearGradient(
-                    Gradient(colors: [Palette.bumperCoral.opacity(leftA), .clear]),
+                    leftA == 0.10 ? Self.leftGoalResting
+                        : Gradient(colors: [Palette.bumperCoral.opacity(leftA), .clear]),
                     startPoint: .zero, endPoint: CGPoint(x: goalW, y: 0)))
         ctx.fill(Path(CGRect(x: size.width - goalW, y: 0, width: goalW, height: size.height)),
                  with: .linearGradient(
-                    Gradient(colors: [.clear, Palette.boostBlue.opacity(rightA)]),
+                    rightA == 0.10 ? Self.rightGoalResting
+                        : Gradient(colors: [.clear, Palette.boostBlue.opacity(rightA)]),
                     startPoint: CGPoint(x: size.width - goalW, y: 0),
                     endPoint: CGPoint(x: size.width, y: 0)))
 
-        // Clock scrim.
-        ctx.fill(Path(CGRect(x: 0, y: 0, width: size.width, height: 42)),
-                 with: .linearGradient(
-                    Gradient(colors: [Color.black.opacity(0.28), .clear]),
-                    startPoint: .zero, endPoint: CGPoint(x: 0, y: 42)))
+        drawClockScrim(ctx, size: size)
     }
 
     private func drawDivider(_ ctx: GraphicsContext) {
@@ -214,15 +168,15 @@ struct PongRenderer {
         ctx.stroke(divider, with: .color(Palette.ink.opacity(0.18)),
                    style: StrokeStyle(lineWidth: 2))
         let mid = CGPoint(x: cx, y: size.height / 2)
-        ctx.stroke(ellipse(at: mid, r: 17), with: .color(Palette.ink.opacity(0.18)),
+        ctx.stroke(arcadeEllipse(at: mid, rx: 17, ry: 17), with: .color(Palette.ink.opacity(0.18)),
                    style: StrokeStyle(lineWidth: 2))
-        ctx.fill(ellipse(at: mid, r: 2.2), with: .color(Palette.ink.opacity(0.22)))
+        ctx.fill(arcadeEllipse(at: mid, rx: 2.2, ry: 2.2), with: .color(Palette.ink.opacity(0.22)))
     }
 
     private func drawScore(_ ctx: GraphicsContext) {
         let y = origin.y + engine.courtH * 0.28
         func number(_ n: Int, side: PongEngine.Side, color: Color, x: Double) {
-            let flash = engine.lastScoreSide == side ? decay(engine.lastScoreAt, 0.6) : 0
+            let flash = engine.lastScoreSide == side ? decay(engine.lastScoreAt, 0.6, now: time) : 0
             let scale = 1 + flash * 0.3
             let alpha = 0.32 + flash * 0.5
             ctx.draw(Text("\(n)")
@@ -240,85 +194,44 @@ struct PongRenderer {
 
     private func drawTrail(_ ctx: GraphicsContext) {
         guard engine.serveAt == nil, engine.trail.count > 2 else { return }
-        let color = engine.smashActive ? Palette.gold : Palette.boostBlue
-        let pts = engine.trail
-        // Tapered ribbon: stacked round-cap segments thinning toward the tail.
-        for i in 1..<pts.count {
-            let f = Double(i) / Double(pts.count)
-            var seg = Path()
-            seg.move(to: pt(pts[i - 1]))
-            seg.addLine(to: pt(pts[i]))
-            ctx.stroke(seg, with: .color(color.opacity(0.04 + 0.30 * f * f)),
-                       style: StrokeStyle(lineWidth: PongEngine.ballR * 1.9 * f,
-                                          lineCap: .round))
-        }
+        drawTaperedTrail(ctx, points: engine.trail,
+                         color: engine.smashActive ? Palette.gold : Palette.boostBlue,
+                         alphaBase: 0.04, alphaGain: 0.30,
+                         width: PongEngine.ballR * 1.9, origin: origin)
     }
 
     private func drawBall(_ ctx: GraphicsContext) {
         guard engine.gameOver == nil else { return }
         let c = pt(engine.ballPos)
         let r = PongEngine.ballR
-
-        // Ground shadow.
-        ctx.fill(ellipse(at: CGPoint(x: c.x, y: c.y + r * 0.9), rx: r * 0.95, ry: r * 0.4),
-                 with: .color(Palette.shadow))
+        drawBallShadow(ctx, at: c, r: r)
 
         if engine.smashActive {
             var glow = ctx
             glow.addFilter(.blur(radius: 4))
-            glow.fill(ellipse(at: c, r: r * 2.2), with: .color(Palette.gold.opacity(0.7)))
+            glow.fill(arcadeEllipse(at: c, rx: r * 2.2, ry: r * 2.2),
+                      with: .color(Palette.gold.opacity(0.7)))
         }
 
-        // Squash on impact, stretch with speed — drawn in a rotated frame
-        // aligned to the velocity.
         let speed = engine.ballVel.length
-        let stretch = min(speed / 900, 0.28)
-        let squash = decay(engine.lastHitAt, 0.13) * 0.3
-        let sx = 1 + stretch - squash
-        let sy = 1 - (stretch - squash) * 0.7
-        var g = ctx
-        g.translateBy(x: c.x, y: c.y)
-        if speed > 1 { g.rotate(by: Angle(radians: atan2(engine.ballVel.y, engine.ballVel.x))) }
-        g.scaleBy(x: sx, y: sy)
-        let fill = engine.smashActive ? Palette.gold : Palette.wallTop
-        g.fill(ellipse(at: .zero, r: r), with: .color(fill))
-        g.stroke(ellipse(at: .zero, r: r), with: .color(Palette.ink),
-                 style: StrokeStyle(lineWidth: 1.5))
-        g.fill(ellipse(at: CGPoint(x: -r * 0.3, y: -r * 0.35), rx: r * 0.24, ry: r * 0.2),
-               with: .color(.white.opacity(0.9)))
+        drawArcadeBall(ctx, at: c, r: r, vel: engine.ballVel,
+                       stretch: min(speed / 900, 0.28),
+                       squash: decay(engine.lastHitAt, 0.13, now: time) * 0.3,
+                       fill: engine.smashActive ? Palette.gold : Palette.wallTop,
+                       rotates: speed > 1)
     }
 
     private func drawPaddles(_ ctx: GraphicsContext) {
         func paddle(x: Double, y: Double, h: Double, color: Color, core: Color,
                     hitAt: Double, bumpDir: Double, glow: Bool) {
-            let bump = decay(hitAt, 0.16)
+            let bump = decay(hitAt, 0.16, now: time)
             let px = origin.x + x + bumpDir * bump * 3
             let rect = CGRect(x: px - PongEngine.paddleW / 2,
                               y: origin.y + y - h / 2,
                               width: PongEngine.paddleW, height: h)
-            let shape = Path(roundedRect: rect, cornerRadius: PongEngine.paddleW / 2)
-
-            // Soft shadow, smash aura, body, ink, inner core stripe.
-            var sh = ctx
-            sh.translateBy(x: 1.2, y: 2)
-            sh.addFilter(.blur(radius: 1.6))
-            sh.fill(shape, with: .color(Palette.shadow))
-            if glow {
-                var g = ctx
-                g.addFilter(.blur(radius: 3.5))
-                g.fill(shape.strokedPath(StrokeStyle(lineWidth: 5)),
-                       with: .color(Palette.gold.opacity(0.6 + 0.25 * sin(time * 6))))
-            }
-            ctx.fill(shape, with: .color(color))
-            var stripe = Path()
-            stripe.move(to: CGPoint(x: rect.midX, y: rect.minY + 4))
-            stripe.addLine(to: CGPoint(x: rect.midX, y: rect.maxY - 4))
-            ctx.stroke(stripe, with: .color(core),
-                       style: StrokeStyle(lineWidth: 1.8, lineCap: .round))
-            ctx.stroke(shape, with: .color(Palette.ink), style: StrokeStyle(lineWidth: 1.5))
-            if bump > 0 {
-                ctx.fill(shape, with: .color(.white.opacity(bump * 0.55)))
-            }
+            drawArcadePaddle(ctx, rect: rect, fill: color, core: core, vertical: true,
+                             flash: bump, flashAlpha: 0.55,
+                             glowOpacity: glow ? 0.6 + 0.25 * sin(time * 6) : nil)
         }
         paddle(x: PongEngine.paddleInset - PongEngine.paddleW / 2, y: engine.botY,
                h: engine.botH, color: Palette.bumperCoral,
@@ -327,7 +240,7 @@ struct PongRenderer {
                glow: engine.botCharge >= engine.botChargeThreshold)
         paddle(x: engine.courtW - PongEngine.paddleInset + PongEngine.paddleW / 2,
                y: engine.playerY, h: engine.playerH, color: Palette.boostBlue,
-               core: Color(red: 0.76, green: 0.88, blue: 0.95),
+               core: Palette.paddleCore,
                hitAt: engine.playerHitAt, bumpDir: 1,
                glow: engine.playerSmashReady)
     }
@@ -340,7 +253,7 @@ struct PongRenderer {
             guard t >= 0, t < 1 else { continue }
             let e = 1 - pow(1 - t, 2)
             let color = ripple.gold ? Palette.gold : Palette.ink
-            ctx.stroke(ellipse(at: pt(ripple.pos), r: 3 + e * 22),
+            ctx.stroke(arcadeEllipse(at: pt(ripple.pos), rx: 3 + e * 22, ry: 3 + e * 22),
                        with: .color(color.opacity(0.4 * (1 - t))),
                        style: StrokeStyle(lineWidth: 1.6 * (1 - t) + 0.4))
         }
@@ -366,7 +279,7 @@ struct PongRenderer {
         g.opacity = fade
 
         // Ground shadow, tightening as the token bobs up.
-        g.fill(ellipse(at: CGPoint(x: rest.x, y: rest.y + 8), rx: 5.5 - bob * 0.5, ry: 2.1),
+        g.fill(arcadeEllipse(at: CGPoint(x: rest.x, y: rest.y + 8), rx: 5.5 - bob * 0.5, ry: 2.1),
                with: .color(Palette.shadow))
 
         // Countdown arc drains around the token; a soft pulse near expiry
@@ -385,13 +298,14 @@ struct PongRenderer {
 
         // Flat token: deep under-disc peeks out as a bottom-right crescent,
         // like the golf coin's two-tone shading.
-        g.fill(ellipse(at: c, r: r), with: .color(deep))
-        g.fill(ellipse(at: CGPoint(x: c.x - r * 0.09, y: c.y - r * 0.13), r: r * 0.93),
+        g.fill(arcadeEllipse(at: c, rx: r, ry: r), with: .color(deep))
+        g.fill(arcadeEllipse(at: CGPoint(x: c.x - r * 0.09, y: c.y - r * 0.13),
+                             rx: r * 0.93, ry: r * 0.93),
                with: .color(main))
-        g.stroke(ellipse(at: c, r: r), with: .color(Palette.ink),
+        g.stroke(arcadeEllipse(at: c, rx: r, ry: r), with: .color(Palette.ink),
                  style: StrokeStyle(lineWidth: 1.5))
-        g.fill(ellipse(at: CGPoint(x: c.x - r * 0.34, y: c.y - r * 0.44),
-                       rx: r * 0.26, ry: r * 0.17),
+        g.fill(arcadeEllipse(at: CGPoint(x: c.x - r * 0.34, y: c.y - r * 0.44),
+                             rx: r * 0.26, ry: r * 0.17),
                with: .color(.white.opacity(0.5)))
 
         // Symbol with a hairline drop for legibility on the bright fill.
@@ -400,26 +314,6 @@ struct PongRenderer {
         g.draw(symbol.foregroundStyle(Palette.ink.opacity(0.35)),
                at: CGPoint(x: c.x, y: c.y + 1.2))
         g.draw(symbol.foregroundStyle(.white), at: CGPoint(x: c.x, y: c.y + 0.5))
-    }
-
-    private func drawParticles(_ ctx: GraphicsContext) {
-        for particle in engine.particles {
-            let a = max(0, particle.life / particle.maxLife)
-            let c = pt(particle.pos)
-            let color: Color
-            switch particle.hue {
-            case .gold: color = Palette.gold
-            case .shard: color = Palette.wallSide
-            case .grass: color = Palette.fairwayStripe
-            case .white: color = .white
-            case .confetti(let i):
-                color = Palette.confettiColors[i % Palette.confettiColors.count]
-            }
-            let r = particle.size / 2 + 0.6
-            // Soft halo under each spark keeps bursts from feeling flat.
-            ctx.fill(ellipse(at: c, r: r * 2), with: .color(color.opacity(a * 0.18)))
-            ctx.fill(ellipse(at: c, r: r), with: .color(color.opacity(a)))
-        }
     }
 
     private func drawCharge(_ ctx: GraphicsContext) {
@@ -451,7 +345,7 @@ struct PongRenderer {
         let remain = max(0, s - time)
         let pulse = 1 - (remain.truncatingRemainder(dividingBy: 0.45)) / 0.45
         let c = CGPoint(x: origin.x + engine.courtW / 2, y: origin.y + engine.courtH / 2)
-        ctx.stroke(ellipse(at: c, r: 8 + pulse * 12),
+        ctx.stroke(arcadeEllipse(at: c, rx: 8 + pulse * 12, ry: 8 + pulse * 12),
                    with: .color(Palette.ink.opacity(0.4 * (1 - pulse))),
                    style: StrokeStyle(lineWidth: 1.6))
         // Chevrons hint at the serve direction.
@@ -467,8 +361,9 @@ struct PongRenderer {
                        style: StrokeStyle(lineWidth: 1.8, lineCap: .round, lineJoin: .round))
         }
         // The waiting ball.
-        ctx.fill(ellipse(at: c, r: PongEngine.ballR), with: .color(Palette.wallTop))
-        ctx.stroke(ellipse(at: c, r: PongEngine.ballR), with: .color(Palette.ink),
-                   style: StrokeStyle(lineWidth: 1.5))
+        ctx.fill(arcadeEllipse(at: c, rx: PongEngine.ballR, ry: PongEngine.ballR),
+                 with: .color(Palette.wallTop))
+        ctx.stroke(arcadeEllipse(at: c, rx: PongEngine.ballR, ry: PongEngine.ballR),
+                   with: .color(Palette.ink), style: StrokeStyle(lineWidth: 1.5))
     }
 }
