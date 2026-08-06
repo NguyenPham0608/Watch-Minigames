@@ -27,7 +27,8 @@ final class ScoreStore {
         /// Legacy field; folded into `arcadeBests["stacker"]` on load.
         var stackerBest: Int? = nil
         /// Bests for the arcade games, keyed by game id ("bricks", "echo",
-        /// "fruit", "stacker", "2048"). Optional so older stores decode.
+        /// "fruit", "stacker", "2048", "pairs", "spin"). Optional so older
+        /// stores decode. Pairs stores fewest moves (lower is better).
         var arcadeBests: [String: Int]? = nil
     }
 
@@ -87,6 +88,18 @@ final class ScoreStore {
     @discardableResult
     func recordArcadeBest(_ key: String, _ score: Int) -> Bool {
         guard score > arcadeBest(key) else { return false }
+        var bests = data.arcadeBests ?? [:]
+        bests[key] = score
+        data.arcadeBests = bests
+        scheduleSave()
+        return true
+    }
+
+    /// Lower-is-better variant for move-count games (Pairs); 0 means unset.
+    @discardableResult
+    func recordArcadeBestLow(_ key: String, _ score: Int) -> Bool {
+        let current = arcadeBest(key)
+        guard score > 0, current == 0 || score < current else { return false }
         var bests = data.arcadeBests ?? [:]
         bests[key] = score
         data.arcadeBests = bests

@@ -11,7 +11,7 @@ import SwiftUI
 /// Every game in the carousel, in page order. Adding a game is one new case
 /// plus one arm in `home` — the tabs and the crown range follow.
 enum Game: Int, CaseIterable, Identifiable {
-    case golf, pong, stacker, bricks, echo, fruit, game2048
+    case golf, pong, stacker, bricks, echo, fruit, game2048, pairs, spin
 
     var id: Int { rawValue }
 
@@ -24,6 +24,8 @@ enum Game: Int, CaseIterable, Identifiable {
         case .echo: EchoHome()
         case .fruit: FruitHome()
         case .game2048: Game2048Home()
+        case .pairs: PairsHome()
+        case .spin: SpinHome()
         }
     }
 }
@@ -82,6 +84,8 @@ struct ContentView: View {
         case "echo": EchoView()
         case "fruit": FruitView()
         case "2048": Game2048View()
+        case "pairs": PairsView()
+        case "spin": SpinView()
         default: home
         }
     }
