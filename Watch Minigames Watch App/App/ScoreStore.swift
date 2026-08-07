@@ -27,8 +27,9 @@ final class ScoreStore {
         /// Legacy field; folded into `arcadeBests["stacker"]` on load.
         var stackerBest: Int? = nil
         /// Bests for the arcade games, keyed by game id ("bricks", "echo",
-        /// "fruit", "stacker", "2048", "pairs", "spin"). Optional so older
-        /// stores decode. Pairs stores fewest moves (lower is better).
+        /// "fruit", "stacker", "2048", "pairs", "spin", "keepups").
+        /// Optional so older stores decode. Pairs stores fewest moves
+        /// (lower is better).
         var arcadeBests: [String: Int]? = nil
     }
 
