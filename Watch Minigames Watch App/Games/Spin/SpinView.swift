@@ -53,7 +53,6 @@ final class SpinEngine {
 
     static let startSpeed = 1.9
     static let speedGain = 0.055
-    static let maxSpeed = 4.6
     static let startHalf = 0.44
     static let minHalf = 0.13
     static let tapGrace = 0.05
@@ -138,7 +137,8 @@ final class SpinEngine {
             Haptics.play(.click, minInterval: 0)
         }
         dir = -dir
-        speed = min(Self.maxSpeed, Self.startSpeed + Double(score) * Self.speedGain)
+        // No ceiling — the sweep just keeps accelerating until it wins.
+        speed = Self.startSpeed + Double(score) * Self.speedGain
         // The earned bonus pushes back against the shrink, never past the
         // starting size.
         wedgeHalf = min(Self.startHalf,
