@@ -264,7 +264,6 @@ struct KeepUpsRenderer {
 
         ctx.fill(Path(CGRect(origin: .zero, size: size)), with: .color(Palette.bg))
         drawWallpaperDots(ctx, size: size)
-        drawCloud(ctx)
         drawGrass(ctx)
         drawBall(ctx)
         drawArcadeParticles(ctx, engine.particles)
@@ -279,19 +278,6 @@ struct KeepUpsRenderer {
         }
 
         drawClockScrim(ctx, size: size)
-    }
-
-    private func drawCloud(_ ctx: GraphicsContext) {
-        // One lazy cloud, drifting and wrapping.
-        let x = (time * 3.5).truncatingRemainder(dividingBy: Double(size.width) + 70) - 35
-        let c = CGPoint(x: x, y: 52)
-        var cloud = Path()
-        cloud.addEllipse(in: CGRect(x: c.x - 14, y: c.y - 4, width: 16, height: 9))
-        cloud.addEllipse(in: CGRect(x: c.x - 6, y: c.y - 8, width: 15, height: 12))
-        cloud.addEllipse(in: CGRect(x: c.x + 1, y: c.y - 4, width: 14, height: 9))
-        ctx.fill(cloud, with: .color(.white.opacity(0.7)))
-        ctx.stroke(cloud, with: .color(Palette.ink.opacity(0.5)),
-                   style: StrokeStyle(lineWidth: 1.2))
     }
 
     private func drawGrass(_ ctx: GraphicsContext) {
