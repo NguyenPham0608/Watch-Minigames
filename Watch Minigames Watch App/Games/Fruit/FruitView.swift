@@ -228,7 +228,6 @@ struct FruitView: View {
     @Environment(ScoreStore.self) private var store
 
     @State private var engine = FruitEngine()
-    @State private var crown = 0.5
     @State private var score = 0
     @State private var streak = 0
     @State private var chipFlash = 0.0
@@ -259,12 +258,9 @@ struct FruitView: View {
                 }
             }
         }
-        .focusable()
-        .digitalCrownRotation($crown, from: 0, through: 1, by: 0.001,
-                              sensitivity: .low, isContinuous: false,
-                              isHapticFeedbackEnabled: false)
-        .onChange(of: crown) { _, newValue in
-            engine.basketTarget = newValue * engine.courtW
+        .crownDetents { detents in
+            engine.basketTarget = min(max(engine.basketTarget + detents * CrownFeel.pointsPerDetent,
+                                          0), engine.courtW)
         }
         .onAppear {
             engine.onHUDChange = { hud in
@@ -326,7 +322,6 @@ struct FruitView: View {
                 if dragStartX == nil { dragStartX = engine.basketTarget }
                 let target = (dragStartX ?? 0) + Double(value.translation.width) * 1.3
                 engine.basketTarget = min(max(target, 0), engine.courtW)
-                crown = engine.basketTarget / max(engine.courtW, 1)
             }
             .onEnded { _ in dragStartX = nil }
     }

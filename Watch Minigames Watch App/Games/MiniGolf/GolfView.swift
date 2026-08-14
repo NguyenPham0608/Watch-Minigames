@@ -24,7 +24,6 @@ struct GolfView: View {
     @State private var roundStrokes: [Int] = []
     @State private var showScorecard = false
     @State private var roundWasBest = false
-    @State private var crownZoom = 1.0
 
     struct HoleResult {
         var strokes: Int
@@ -56,12 +55,8 @@ struct GolfView: View {
                 }
             }
         }
-        .focusable()
-        .digitalCrownRotation($crownZoom, from: 0.7, through: 1.5, by: 0.05,
-                              sensitivity: .low, isContinuous: false,
-                              isHapticFeedbackEnabled: false)
-        .onChange(of: crownZoom) { _, newValue in
-            engine.zoomTarget = newValue
+        .crownDetents { detents in
+            engine.zoomTarget = min(max(engine.zoomTarget + detents * 0.01, 0.7), 1.5)
         }
         .onAppear { wireEngine() }
     }
@@ -99,8 +94,6 @@ struct GolfView: View {
     // MARK: Engine lifecycle
 
     private func wireEngine() {
-        engine.zoom = crownZoom
-        engine.zoomTarget = crownZoom
         engine.onEvent = { event in
             switch event {
             case .sunk(let strokes):

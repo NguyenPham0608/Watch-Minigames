@@ -54,8 +54,6 @@ struct EditorView: View {
     @State private var selection: Selection = .none
     @State private var cam: Vec2
     @State private var zoom = 0.9
-    @State private var crownAccum = 0.0
-    @State private var crownBaseline = 0.0
     @State private var wpTool: EditTool = .move
     @State private var obTool: EditTool = .rotate
     @State private var dragging: DragTarget? = nil
@@ -152,14 +150,7 @@ struct EditorView: View {
         }
         .ignoresSafeArea()
         .navigationBarBackButtonHidden(true)
-        .focusable()
-        .digitalCrownRotation($crownAccum, from: -10_000, through: 10_000, by: 1,
-                              sensitivity: .medium, isContinuous: true,
-                              isHapticFeedbackEnabled: false)
-        .onChange(of: crownAccum) { _, newValue in
-            applyCrown(delta: newValue - crownBaseline)
-            crownBaseline = newValue
-        }
+        .crownDetents { delta in applyCrown(delta: delta) }
         .sheet(isPresented: $showPalette) { palette }
         .sheet(isPresented: $showTest) {
             NavigationStack {

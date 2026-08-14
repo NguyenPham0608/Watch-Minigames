@@ -15,7 +15,6 @@ struct BricksView: View {
     @Environment(\.dismiss) private var dismiss
 
     @State private var engine = BricksEngine()
-    @State private var crown = 0.5
     @State private var finalScore: Int? = nil
     @State private var wasBest = false
     @State private var dragStartX: Double? = nil
@@ -35,12 +34,9 @@ struct BricksView: View {
                 }
             }
         }
-        .focusable()
-        .digitalCrownRotation($crown, from: 0, through: 1, by: 0.001,
-                              sensitivity: .low, isContinuous: false,
-                              isHapticFeedbackEnabled: false)
-        .onChange(of: crown) { _, newValue in
-            engine.paddleTarget = newValue * engine.courtW
+        .crownDetents { detents in
+            engine.paddleTarget = min(max(engine.paddleTarget + detents * CrownFeel.pointsPerDetent,
+                                          0), engine.courtW)
         }
         .onAppear {
             engine.onGameOver = { score in
@@ -61,15 +57,13 @@ struct BricksView: View {
         .gesture(paddleDrag)
     }
 
-    /// Drag steers the paddle; a bare tap serves. Keeps the crown in sync so
-    /// the two controls hand off without a jump.
+    /// Drag steers the paddle; a bare tap serves.
     private var paddleDrag: some Gesture {
         DragGesture(minimumDistance: 0)
             .onChanged { value in
                 if dragStartX == nil { dragStartX = engine.paddleTarget }
                 let target = (dragStartX ?? 0) + Double(value.translation.width) * 1.3
                 engine.paddleTarget = min(max(target, 0), engine.courtW)
-                crown = engine.paddleTarget / max(engine.courtW, 1)
             }
             .onEnded { value in
                 dragStartX = nil

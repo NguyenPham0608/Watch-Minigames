@@ -12,7 +12,6 @@ struct PongView: View {
     @Environment(ScoreStore.self) private var store
 
     @State private var engine = PongEngine()
-    @State private var crown = 0.5
     @State private var winner: PongEngine.Side? = nil
     /// Paddle position when a finger drag began.
     @State private var dragStartY: Double? = nil
@@ -23,13 +22,10 @@ struct PongView: View {
         } overlay: {
             if let winner { resultOverlay(winner) }
         }
-        .focusable()
-        .digitalCrownRotation($crown, from: 0, through: 1, by: 0.001,
-                              sensitivity: .low, isContinuous: false,
-                              isHapticFeedbackEnabled: false)
-        .onChange(of: crown) { _, newValue in
-            // Crown up moves the paddle up.
-            engine.playerTarget = (1 - newValue) * engine.courtH
+        .crownDetents { detents in
+            // Crown up moves the paddle down.
+            engine.playerTarget = min(max(engine.playerTarget + detents * CrownFeel.pointsPerDetent,
+                                          0), engine.courtH)
         }
         .onAppear {
             engine.difficulty = store.pongDifficulty
@@ -56,15 +52,13 @@ struct PongView: View {
     }
 
     /// Drag anywhere to steer the paddle — slightly faster than 1:1 so one
-    /// swipe can cover the court. Keeps the crown value in sync so the two
-    /// controls hand off without a jump.
+    /// swipe can cover the court.
     private var paddleDrag: some Gesture {
         DragGesture(minimumDistance: 0)
             .onChanged { value in
                 if dragStartY == nil { dragStartY = engine.playerTarget }
                 let target = (dragStartY ?? 0) + Double(value.translation.height) * 1.2
                 engine.playerTarget = min(max(target, 0), engine.courtH)
-                crown = 1 - engine.playerTarget / max(engine.courtH, 1)
             }
             .onEnded { _ in dragStartY = nil }
     }
