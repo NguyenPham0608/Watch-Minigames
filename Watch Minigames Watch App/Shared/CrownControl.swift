@@ -2,16 +2,22 @@
 //  CrownControl.swift
 //  Watch Minigames Watch App
 //
-//  Relative Digital Crown input with the system scroll feel: haptic detents,
-//  list-scroll pacing, and no dead travel when a control is pinned at an edge.
+//  Relative Digital Crown input with direct drive: rotation maps to movement
+//  at a fixed ratio, with haptic detents and no dead travel when a control is
+//  pinned at an edge. Deliberately NOT the system scroll-view physics — its
+//  velocity acceleration is tuned for long lists and feels erratic steering a
+//  paddle across a ~200 pt court (light flicks fly, and the paddle overshoots
+//  or lags the crown). Fixed gearing is what makes steering predictable.
 //
 
 import SwiftUI
 
 enum CrownFeel {
     /// How far one crown detent moves a paddle, in points. One shared knob so
-    /// every game paces alike; raise it if steering feels too slow.
-    static let pointsPerDetent = 3.0
+    /// every game paces alike — geared so a full revolution sweeps about one
+    /// and a half court widths, close to list-scroll travel. Tune this first
+    /// if steering feels off.
+    static let pointsPerDetent = 12.0
 }
 
 /// Accumulates rotation over an effectively unbounded range and hands each
@@ -48,8 +54,8 @@ private struct CrownDetents: ViewModifier {
 }
 
 extension View {
-    /// Steer with the crown at system-scroll pace: `onDetents` receives the
-    /// rotation since the last call, in haptic detent units.
+    /// Steer with the crown at a fixed, predictable pace: `onDetents`
+    /// receives the rotation since the last call, in haptic detent units.
     func crownDetents(sensitivity: DigitalCrownRotationalSensitivity = .medium,
                       _ onDetents: @escaping (Double) -> Void) -> some View {
         modifier(CrownDetents(sensitivity: sensitivity, onDetents: onDetents))
