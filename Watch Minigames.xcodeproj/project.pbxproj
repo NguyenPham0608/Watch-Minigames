@@ -6,7 +6,34 @@
 	objectVersion = 100;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		CBEE2F923020EA4F0063A304 /* Watch Minigames Watch App.app in Embed Watch Content */ = {isa = PBXBuildFile; fileRef = CBEE2F913020EA4F0063A304 /* Watch Minigames Watch App.app */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		CBEE2F933020EA4F0063A304 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = CBEE2F853020EA4F0063A304 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = CBEE2F903020EA4F0063A304;
+			remoteInfo = "Watch Minigames Watch App";
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		CBEE2FA13020EA500063A304 /* Embed Watch Content */ = {
+			isa = PBXCopyFilesBuildPhase;
+			dstPath = "$(CONTENTS_FOLDER_PATH)/Watch";
+			dstSubfolder = Product;
+			files = (
+				CBEE2F923020EA4F0063A304 /* Watch Minigames Watch App.app in Embed Watch Content */,
+			);
+			name = "Embed Watch Content";
+		};
+/* End PBXCopyFilesBuildPhase section */
+
 /* Begin PBXFileReference section */
+		CBEE2F8B3020EA4F0063A304 /* Watch Minigames.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Watch Minigames.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		CBEE2F913020EA4F0063A304 /* Watch Minigames Watch App.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Watch Minigames Watch App.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -38,6 +65,7 @@
 		CBEE2F8C3020EA4F0063A304 /* Products */ = {
 			isa = PBXGroup;
 			children = (
+				CBEE2F8B3020EA4F0063A304 /* Watch Minigames.app */,
 				CBEE2F913020EA4F0063A304 /* Watch Minigames Watch App.app */,
 			);
 			name = Products;
@@ -46,6 +74,23 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
+		CBEE2F8A3020EA4F0063A304 /* Watch Minigames */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = CBEE2FA23020EA500063A304 /* Build configuration list for PBXNativeTarget "Watch Minigames" */;
+			buildPhases = (
+				CBEE2F893020EA4F0063A304 /* Resources */,
+				CBEE2FA13020EA500063A304 /* Embed Watch Content */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				CBEE2F943020EA4F0063A304 /* PBXTargetDependency */,
+			);
+			name = "Watch Minigames";
+			productName = "Watch Minigames";
+			productReference = CBEE2F8B3020EA4F0063A304 /* Watch Minigames.app */;
+			productType = "com.apple.product-type.application.watchapp2-container";
+		};
 		CBEE2F903020EA4F0063A304 /* Watch Minigames Watch App */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = CBEE2F9E3020EA500063A304 /* Build configuration list for PBXNativeTarget "Watch Minigames Watch App" */;
@@ -74,6 +119,9 @@
 				LastSwiftUpdateCheck = 2700;
 				LastUpgradeCheck = 2700;
 				TargetAttributes = {
+					CBEE2F8A3020EA4F0063A304 = {
+						CreatedOnToolsVersion = 27.0;
+					};
 					CBEE2F903020EA4F0063A304 = {
 						CreatedOnToolsVersion = 27.0;
 						LastSwiftMigration = 2700;
@@ -94,12 +142,18 @@
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
+				CBEE2F8A3020EA4F0063A304 /* Watch Minigames */,
 				CBEE2F903020EA4F0063A304 /* Watch Minigames Watch App */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
+		CBEE2F893020EA4F0063A304 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			files = (
+			);
+		};
 		CBEE2F8F3020EA4F0063A304 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			files = (
@@ -114,6 +168,14 @@
 			);
 		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		CBEE2F943020EA4F0063A304 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = CBEE2F903020EA4F0063A304 /* Watch Minigames Watch App */;
+			targetProxy = CBEE2F933020EA4F0063A304 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		CBEE2F9C3020EA500063A304 /* Debug configuration for PBXProject "Watch Minigames" */ = {
@@ -246,16 +308,17 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = "Watch Minigames";
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
-				INFOPLIST_KEY_WKApplication = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
+				INFOPLIST_KEY_WKWatchOnly = YES;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = "com.nguyen.Watch-Minigames";
+				PRODUCT_BUNDLE_IDENTIFIER = "com.nguyen.Watch-Minigames.watchkitapp";
 				PRODUCT_NAME = "Watch Minigames Watch App";
 				SDKROOT = watchos;
-				SKIP_INSTALL = NO;
+				SKIP_INSTALL = YES;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
@@ -281,16 +344,17 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = "Watch Minigames";
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
-				INFOPLIST_KEY_WKApplication = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
+				INFOPLIST_KEY_WKWatchOnly = YES;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = "com.nguyen.Watch-Minigames";
+				PRODUCT_BUNDLE_IDENTIFIER = "com.nguyen.Watch-Minigames.watchkitapp";
 				PRODUCT_NAME = "Watch Minigames Watch App";
 				SDKROOT = watchos;
-				SKIP_INSTALL = NO;
+				SKIP_INSTALL = YES;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
@@ -301,6 +365,43 @@
 				TARGETED_DEVICE_FAMILY = 4;
 				VALIDATE_PRODUCT = YES;
 				WATCHOS_DEPLOYMENT_TARGET = 26.0;
+			};
+			name = Release;
+		};
+		CBEE2FA33020EA500063A304 /* Debug configuration for PBXNativeTarget "Watch Minigames" */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 11;
+				DEVELOPMENT_TEAM = F93D9XYLSY;
+				INFOPLIST_KEY_CFBundleDisplayName = "Watch Minigames";
+				IPHONEOS_DEPLOYMENT_TARGET = "$(RECOMMENDED_IPHONEOS_DEPLOYMENT_TARGET)";
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.nguyen.Watch-Minigames";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		CBEE2FA43020EA500063A304 /* Release configuration for PBXNativeTarget "Watch Minigames" */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 11;
+				DEVELOPMENT_TEAM = F93D9XYLSY;
+				INFOPLIST_KEY_CFBundleDisplayName = "Watch Minigames";
+				IPHONEOS_DEPLOYMENT_TARGET = "$(RECOMMENDED_IPHONEOS_DEPLOYMENT_TARGET)";
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.nguyen.Watch-Minigames";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				VALIDATE_PRODUCT = YES;
 			};
 			name = Release;
 		};
@@ -320,6 +421,14 @@
 			buildConfigurations = (
 				CBEE2F9F3020EA500063A304 /* Debug configuration for PBXNativeTarget "Watch Minigames Watch App" */,
 				CBEE2FA03020EA500063A304 /* Release configuration for PBXNativeTarget "Watch Minigames Watch App" */,
+			);
+			defaultConfigurationName = Release;
+		};
+		CBEE2FA23020EA500063A304 /* Build configuration list for PBXNativeTarget "Watch Minigames" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				CBEE2FA33020EA500063A304 /* Debug configuration for PBXNativeTarget "Watch Minigames" */,
+				CBEE2FA43020EA500063A304 /* Release configuration for PBXNativeTarget "Watch Minigames" */,
 			);
 			defaultConfigurationName = Release;
 		};
