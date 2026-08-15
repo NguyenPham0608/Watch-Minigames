@@ -6,8 +6,8 @@
 //  cup capture, camera follow and lightweight particles.
 //
 
-import Foundation
 import CoreGraphics
+import Foundation
 import SwiftUI
 import WatchKit
 

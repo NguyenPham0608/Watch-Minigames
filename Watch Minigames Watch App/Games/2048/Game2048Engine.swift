@@ -7,8 +7,8 @@
 //  board nudges in the swipe direction when the tiles slam home.
 //
 
-import Foundation
 import CoreGraphics
+import Foundation
 import WatchKit
 
 final class Game2048Engine {

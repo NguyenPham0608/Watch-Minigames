@@ -6,8 +6,8 @@
 //  charge-up smash attacks, power orbs, particles and haptics.
 //
 
-import Foundation
 import CoreGraphics
+import Foundation
 import WatchKit
 
 final class PongEngine {
