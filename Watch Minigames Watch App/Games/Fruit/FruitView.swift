@@ -162,11 +162,13 @@ final class FruitEngine {
         shakeAmp = boom ? 5 : 3
         if boom { spawnBoom(at: p) }
         notifyMainAsync(onHUDChange, (score: score, streak: streak))
-        Haptics.play(.failure, minInterval: 0)
         if hearts <= 0 {
             done = true
             items.removeAll()
+            Haptics.play(.failure, minInterval: 0)
             notifyMainAsync(onGameOver, score)
+        } else {
+            Haptics.play(.retry, minInterval: 0)
         }
     }
 

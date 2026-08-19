@@ -306,7 +306,11 @@ final class GolfEngine {
             floaters.append(Floater(
                 pos: hole.cup + Vec2(0, -20), text: sinkTitle, bornAt: time,
                 color: strokes <= hole.par ? Palette.goldDeep : Palette.wallTop))
-            Haptics.play(.success, minInterval: 0)
+            if strokes == 1 {
+                Haptics.celebrate()
+            } else {
+                Haptics.play(.success, minInterval: 0)
+            }
             notifyMainAsync(onEvent, .sunk(strokes: strokes))
         } else {
             let e = t * t
@@ -477,8 +481,9 @@ final class GolfEngine {
                     if rel.dot(normal) < 0 {
                         let reflected = rel - normal * rel.dot(normal) * 1.7
                         ballVel = reflected + armVel
+                        // Weighted by impact speed via the unified bounce()
+                        // tiering below — a firm own call here would double it up.
                         maxImpact = max(maxImpact, -rel.dot(normal))
-                        Haptics.play(.directionDown, minInterval: 0.15)
                     }
                 }
             }

@@ -104,10 +104,12 @@ final class PairsEngine {
             cards[i].matchedAt = time
             sparkle(at: first)
             sparkle(at: i)
-            Haptics.play(.success, minInterval: 0)
             if cards.allSatisfy(\.matched) {
                 finished = true
+                Haptics.celebrate()
                 notifyMainAsync(onComplete, moves)
+            } else {
+                Haptics.play(.success, minInterval: 0)
             }
         } else {
             cards[first].missAt = time
