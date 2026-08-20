@@ -8,24 +8,15 @@
 import SwiftUI
 
 struct PongHome: View {
-    @Environment(ScoreStore.self) private var store
-
     var body: some View {
         GameHome(title: "Super Pong") { t in
             PongScene(t: t)
         } destination: {
             PongView()
         } accessory: {
-            VStack(spacing: 3) {
-                // Bot difficulty.
-                DifficultySlider()
-                    .padding(.horizontal, 18)
-                if store.pongWins > 0 {
-                    Text("\(store.pongWins) \(store.pongWins == 1 ? "win" : "wins")")
-                        .font(.system(size: 10, weight: .medium, design: .rounded))
-                        .foregroundStyle(Palette.ink.opacity(0.55))
-                }
-            }
+            // Bot difficulty.
+            DifficultySlider()
+                .padding(.horizontal, 18)
         }
     }
 }
@@ -81,7 +72,6 @@ private struct PongScene: View {
             let floor = Path(roundedRect: court, cornerRadius: 9)
             var shadow = ctx
             shadow.translateBy(x: 2, y: 3)
-            shadow.addFilter(.blur(radius: 2.5))
             shadow.fill(floor, with: .color(Palette.shadow))
             ctx.fill(floor, with: .color(.white.opacity(0.55)))
             var center = Path()

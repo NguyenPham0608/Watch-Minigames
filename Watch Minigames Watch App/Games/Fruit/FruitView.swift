@@ -162,11 +162,13 @@ final class FruitEngine {
         shakeAmp = boom ? 5 : 3
         if boom { spawnBoom(at: p) }
         notifyMainAsync(onHUDChange, (score: score, streak: streak))
-        Haptics.play(.failure, minInterval: 0)
         if hearts <= 0 {
             done = true
             items.removeAll()
+            Haptics.play(.failure, minInterval: 0)
             notifyMainAsync(onGameOver, score)
+        } else {
+            Haptics.play(.retry, minInterval: 0)
         }
     }
 
@@ -522,7 +524,6 @@ struct FruitRenderer {
 
         var sh = g
         sh.translateBy(x: 1.5, y: 2.5)
-        sh.addFilter(.blur(radius: 2))
         sh.fill(body, with: .color(Palette.shadow))
 
         g.fill(body, with: .color(Palette.sand))
@@ -662,7 +663,6 @@ private struct FruitScene: View {
             body.closeSubpath()
             var sh = g
             sh.translateBy(x: 1.5, y: 2)
-            sh.addFilter(.blur(radius: 2))
             sh.fill(body, with: .color(Palette.shadow))
             g.fill(body, with: .color(Palette.sand))
             var weave = Path()

@@ -64,19 +64,18 @@ private struct SplashScene: View {
 
             // One clean horizontal pill, banded like the game's walls.
             // Sized to the screen so the caps never clip.
-            let L = min(46.0, size.width / 2 - 38)
-            let scaleK = L / 52
+            let halfLen = min(46.0, size.width / 2 - 38)
+            let scaleK = halfLen / 52
             let pillW = 44.0
             func pill(_ off: Double) -> Path {
                 var p = Path()
-                p.move(to: CGPoint(x: cx - L, y: 36))
-                p.addLine(to: CGPoint(x: cx + L, y: 36))
+                p.move(to: CGPoint(x: cx - halfLen, y: 36))
+                p.addLine(to: CGPoint(x: cx + halfLen, y: 36))
                 return p.strokedPath(StrokeStyle(lineWidth: pillW + off, lineCap: .round))
             }
 
             var shadow = ctx
             shadow.translateBy(x: 2, y: 3)
-            shadow.addFilter(.blur(radius: 2.5))
             shadow.fill(pill(15), with: .color(Palette.shadow))
             ctx.fill(pill(15), with: .color(Palette.ink))
             ctx.fill(pill(9.5), with: .color(Palette.wallTop))

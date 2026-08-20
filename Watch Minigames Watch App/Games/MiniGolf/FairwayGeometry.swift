@@ -5,8 +5,8 @@
 //  Spline sampling and fairway boundary construction for Mini Golf.
 //
 
-import Foundation
 import CoreGraphics
+import Foundation
 
 // MARK: - Centripetal Catmull-Rom
 

@@ -459,10 +459,20 @@ struct CourseRenderer {
     }
 
     private func drawCourseShadow(_ ctx: GraphicsContext, _ shadowPath: Path) {
-        var c = ctx
-        c.translateBy(x: 3, y: 6)
-        c.addFilter(.blur(radius: 3.5))
-        c.fill(shadowPath, with: .color(Palette.shadow))
+        // This is the single largest shadow in the app, so a hard edge would
+        // actually read as one — three offset fills at falling opacity fake
+        // a soft falloff far cheaper than a blur filter (see the note by
+        // drawGlowStroke in ArcadeDraw.swift). Drawn far-to-near so the
+        // sharpest, darkest layer lands last, at the original offset.
+        var far = ctx
+        far.translateBy(x: 5, y: 10)
+        far.fill(shadowPath, with: .color(Palette.shadow.opacity(0.4)))
+        var mid = ctx
+        mid.translateBy(x: 4, y: 8)
+        mid.fill(shadowPath, with: .color(Palette.shadow.opacity(0.6)))
+        var near = ctx
+        near.translateBy(x: 3, y: 6)
+        near.fill(shadowPath, with: .color(Palette.shadow))
     }
 
     // MARK: Fairway stripes (horizontal cartoon bands)

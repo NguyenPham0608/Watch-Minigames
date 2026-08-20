@@ -24,7 +24,11 @@ struct GameHome<SceneContent: View, Destination: View, Accessory: View>: View {
             TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { timeline in
                 scene(timeline.date.timeIntervalSinceReferenceDate)
             }
-            .frame(height: sceneHeight)
+            // The vignette is the one compressible row: on short screens
+            // (40mm) the stack shrinks it toward 64 so the title, Play and
+            // accessory never spill off the bottom; larger watches always
+            // get the full sceneHeight.
+            .frame(minHeight: 64, idealHeight: sceneHeight, maxHeight: sceneHeight)
 
             Text(title)
                 .font(.system(size: 22, weight: .bold, design: .rounded))

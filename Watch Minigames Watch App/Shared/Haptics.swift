@@ -29,4 +29,21 @@ enum Haptics {
             play(.click)
         }
     }
+
+    /// A bigger two-pulse fanfare for game- or match-defining wins, reserved
+    /// for moments that should feel distinctly bigger than a routine .success.
+    static func celebrate() {
+        play(.success, minInterval: 0)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.22) {
+            play(.notification, minInterval: 0)
+        }
+    }
+
+    /// A heavier two-pulse pattern for a decisive, match-ending loss.
+    static func bigLoss() {
+        play(.failure, minInterval: 0)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.22) {
+            play(.failure, minInterval: 0)
+        }
+    }
 }

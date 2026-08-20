@@ -17,10 +17,21 @@ struct CustomCourseList: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 8) {
+                if store.customHoles.isEmpty {
+                    // Reachable by deleting the last course from here; an
+                    // empty ScrollView also collapses to its padding width,
+                    // so keep the frame stretched.
+                    Text("No saved courses yet.\nDesign one with New Course.")
+                        .font(.system(size: 12, design: .rounded))
+                        .foregroundStyle(Palette.ink.opacity(0.6))
+                        .multilineTextAlignment(.center)
+                        .padding(.top, 28)
+                }
                 ForEach(store.customHoles) { hole in
                     row(hole)
                 }
             }
+            .frame(maxWidth: .infinity)
             .padding(.horizontal, 12)
             .padding(.vertical, 16)
         }

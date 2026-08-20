@@ -77,6 +77,19 @@ func drawTaperedTrail(_ ctx: GraphicsContext, points: [Vec2], color: Color,
     }
 }
 
+/// A cheap halo around a shape's outline: two flat strokes at falling
+/// opacity instead of a blur filter. On watchOS, `addFilter(.blur)` forces
+/// Canvas to rasterize to an offscreen buffer and run a real convolution —
+/// by far the most expensive thing these renderers can do per frame, and one
+/// that stacks badly when several shapes each want a soft edge in the same
+/// frame. Two extra flat fills read the same at arcade scale for a fraction
+/// of the cost.
+func drawGlowStroke(_ ctx: GraphicsContext, shape: Path, color: Color, opacity: Double) {
+    guard opacity > 0.01 else { return }
+    ctx.fill(shape.strokedPath(StrokeStyle(lineWidth: 7)), with: .color(color.opacity(opacity * 0.3)))
+    ctx.fill(shape.strokedPath(StrokeStyle(lineWidth: 3.5)), with: .color(color.opacity(opacity * 0.6)))
+}
+
 /// The inked capsule paddle: soft shadow, optional smash aura, body, inner
 /// core stripe, ink, and a white flash (`flash` 1 → just hit) at `flashAlpha`.
 func drawArcadePaddle(_ ctx: GraphicsContext, rect: CGRect, fill: Color, core: Color,
@@ -86,13 +99,9 @@ func drawArcadePaddle(_ ctx: GraphicsContext, rect: CGRect, fill: Color, core: C
                      cornerRadius: (vertical ? rect.width : rect.height) / 2)
     var sh = ctx
     sh.translateBy(x: 1.2, y: 2)
-    sh.addFilter(.blur(radius: 1.6))
     sh.fill(shape, with: .color(Palette.shadow))
     if let glowOpacity {
-        var g = ctx
-        g.addFilter(.blur(radius: 3.5))
-        g.fill(shape.strokedPath(StrokeStyle(lineWidth: 5)),
-               with: .color(Palette.gold.opacity(glowOpacity)))
+        drawGlowStroke(ctx, shape: shape, color: Palette.gold, opacity: glowOpacity)
     }
     ctx.fill(shape, with: .color(fill))
     var stripe = Path()

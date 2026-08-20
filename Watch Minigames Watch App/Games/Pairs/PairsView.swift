@@ -104,10 +104,12 @@ final class PairsEngine {
             cards[i].matchedAt = time
             sparkle(at: first)
             sparkle(at: i)
-            Haptics.play(.success, minInterval: 0)
             if cards.allSatisfy(\.matched) {
                 finished = true
+                Haptics.celebrate()
                 notifyMainAsync(onComplete, moves)
+            } else {
+                Haptics.play(.success, minInterval: 0)
             }
         } else {
             cards[first].missAt = time
@@ -286,7 +288,6 @@ struct PairsRenderer {
         let shape = Path(roundedRect: rect, cornerRadius: 9)
         var sh = g
         sh.translateBy(x: 1.2, y: 2)
-        sh.addFilter(.blur(radius: 2))
         sh.fill(shape, with: .color(Palette.shadow))
 
         if showFace {

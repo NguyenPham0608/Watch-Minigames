@@ -8,8 +8,8 @@
 //  and tumbles.
 //
 
-import Foundation
 import CoreGraphics
+import Foundation
 import WatchKit
 
 final class StackerEngine {

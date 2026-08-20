@@ -6,8 +6,8 @@
 //  charge-up smash attacks, power orbs, particles and haptics.
 //
 
-import Foundation
 import CoreGraphics
+import Foundation
 import WatchKit
 
 final class PongEngine {
@@ -293,16 +293,21 @@ final class PongEngine {
         lastScoreSide = side
         shakeAmp = 4
         spawnGoalBurst(at: ballPos, happy: side == .player)
-        Haptics.play(side == .player ? .success : .failure, minInterval: 0)
 
         let winner: Side? = playerScore >= Self.winScore ? .player
             : (botScore >= Self.winScore ? .bot : nil)
         if let winner {
             gameOver = winner
-            if winner == .player { spawnGoalBurst(at: Vec2(courtW / 2, courtH / 2), happy: true) }
+            if winner == .player {
+                spawnGoalBurst(at: Vec2(courtW / 2, courtH / 2), happy: true)
+                Haptics.celebrate()
+            } else {
+                Haptics.bigLoss()
+            }
             notifyMainAsync(onGameOver, winner)
             return
         }
+        Haptics.play(side == .player ? .success : .failure, minInterval: 0)
         serveToward = side == .player ? .bot : .player
         serveAt = time + 0.9
         ballVel = .zero
