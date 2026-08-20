@@ -201,10 +201,12 @@ struct PongRenderer {
         drawBallShadow(ctx, at: c, r: r)
 
         if engine.smashActive {
-            var glow = ctx
-            glow.addFilter(.blur(radius: 4))
-            glow.fill(arcadeEllipse(at: c, rx: r * 2.2, ry: r * 2.2),
-                      with: .color(Palette.gold.opacity(0.7)))
+            // Layered fills fake the glow without a blur filter's offscreen
+            // rasterize pass — see drawGlowStroke's note in ArcadeDraw.swift.
+            ctx.fill(arcadeEllipse(at: c, rx: r * 2.6, ry: r * 2.6),
+                     with: .color(Palette.gold.opacity(0.22)))
+            ctx.fill(arcadeEllipse(at: c, rx: r * 1.9, ry: r * 1.9),
+                     with: .color(Palette.gold.opacity(0.4)))
         }
 
         let speed = engine.ballVel.length
@@ -317,12 +319,15 @@ struct PongRenderer {
         let x0 = origin.x + engine.courtW - 46
         let y = origin.y + engine.courtH - 16
         if ready {
-            var g = ctx
-            g.addFilter(.blur(radius: 3))
-            g.fill(Path(roundedRect: CGRect(x: x0 - 3, y: y - 4.4,
-                                            width: (w + gap) * 3 + 3, height: 8.8),
-                        cornerRadius: 4.4),
-                   with: .color(Palette.gold.opacity(0.55)))
+            // Two nested fills fake the glow without a blur filter.
+            let outer = Path(roundedRect: CGRect(x: x0 - 5, y: y - 6.4,
+                                                 width: (w + gap) * 3 + 7, height: 12.8),
+                             cornerRadius: 6.4)
+            let inner = Path(roundedRect: CGRect(x: x0 - 3, y: y - 4.4,
+                                                 width: (w + gap) * 3 + 3, height: 8.8),
+                             cornerRadius: 4.4)
+            ctx.fill(outer, with: .color(Palette.gold.opacity(0.28)))
+            ctx.fill(inner, with: .color(Palette.gold.opacity(0.45)))
         }
         for i in 0..<PongEngine.playerChargeMax {
             let filled = engine.playerCharge > i || ready

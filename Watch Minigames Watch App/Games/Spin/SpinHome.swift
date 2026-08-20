@@ -36,7 +36,6 @@ private struct SpinScene: View {
                                               width: ringR * 2, height: ringR * 2))
             var sh = ctx
             sh.translateBy(x: 1.5, y: 2.5)
-            sh.addFilter(.blur(radius: 2))
             sh.stroke(ring, with: .color(Palette.shadow),
                       style: StrokeStyle(lineWidth: trackW))
             ctx.stroke(ring, with: .color(.white.opacity(0.72)),

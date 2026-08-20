@@ -72,7 +72,6 @@ private struct PongScene: View {
             let floor = Path(roundedRect: court, cornerRadius: 9)
             var shadow = ctx
             shadow.translateBy(x: 2, y: 3)
-            shadow.addFilter(.blur(radius: 2.5))
             shadow.fill(floor, with: .color(Palette.shadow))
             ctx.fill(floor, with: .color(.white.opacity(0.55)))
             var center = Path()

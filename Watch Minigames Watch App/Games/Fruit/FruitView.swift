@@ -524,7 +524,6 @@ struct FruitRenderer {
 
         var sh = g
         sh.translateBy(x: 1.5, y: 2.5)
-        sh.addFilter(.blur(radius: 2))
         sh.fill(body, with: .color(Palette.shadow))
 
         g.fill(body, with: .color(Palette.sand))
@@ -664,7 +663,6 @@ private struct FruitScene: View {
             body.closeSubpath()
             var sh = g
             sh.translateBy(x: 1.5, y: 2)
-            sh.addFilter(.blur(radius: 2))
             sh.fill(body, with: .color(Palette.shadow))
             g.fill(body, with: .color(Palette.sand))
             var weave = Path()

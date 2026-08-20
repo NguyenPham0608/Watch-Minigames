@@ -76,7 +76,6 @@ private struct SplashScene: View {
 
             var shadow = ctx
             shadow.translateBy(x: 2, y: 3)
-            shadow.addFilter(.blur(radius: 2.5))
             shadow.fill(pill(15), with: .color(Palette.shadow))
             ctx.fill(pill(15), with: .color(Palette.ink))
             ctx.fill(pill(9.5), with: .color(Palette.wallTop))

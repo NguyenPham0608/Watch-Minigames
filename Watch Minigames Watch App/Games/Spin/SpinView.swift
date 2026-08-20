@@ -293,7 +293,6 @@ struct SpinRenderer {
                                           width: ringR * 2, height: ringR * 2))
         var sh = ctx
         sh.translateBy(x: 2, y: 3)
-        sh.addFilter(.blur(radius: 2.5))
         sh.stroke(ring, with: .color(Palette.shadow),
                   style: StrokeStyle(lineWidth: trackW))
 
@@ -375,7 +374,6 @@ struct SpinRenderer {
 
         var sh = g
         sh.translateBy(x: 1.5, y: 2.5)
-        sh.addFilter(.blur(radius: 2))
         sh.fill(arcadeEllipse(at: c, rx: r, ry: r), with: .color(Palette.shadow))
 
         arcadeInkedEllipse(g, at: c, rx: r, ry: r, fill: .white, ink: 1.8)
