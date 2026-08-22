@@ -61,7 +61,6 @@ private struct PairsScene: View {
                 let shape = Path(roundedRect: rect, cornerRadius: 8)
                 var sh = g
                 sh.translateBy(x: 1.2, y: 2)
-                sh.addFilter(.blur(radius: 2))
                 sh.fill(shape, with: .color(Palette.shadow))
 
                 if showFace {

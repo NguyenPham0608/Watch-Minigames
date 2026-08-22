@@ -7,8 +7,8 @@
 //  board nudges in the swipe direction when the tiles slam home.
 //
 
-import Foundation
 import CoreGraphics
+import Foundation
 import WatchKit
 
 final class Game2048Engine {
@@ -256,7 +256,7 @@ final class Game2048Engine {
                 floaters.append(Floater(pos: Vec2(c.x, c.y - 20), text: "2048!",
                                         bornAt: time, color: Palette.goldDeep))
                 spawnConfetti(at: c)
-                Haptics.play(.success, minInterval: 0)
+                Haptics.celebrate()
             }
         }
 

@@ -109,9 +109,9 @@ struct Obstacle: Codable, Identifiable, Hashable {
 
     /// FNV-1a over the uuid string, folded to 0..<1.
     private static func jitterSeed(for id: UUID) -> Double {
-        var h: UInt64 = 1469598103934665603
+        var h: UInt64 = 1_469_598_103_934_665_603
         for b in id.uuidString.utf8 {
-            h = (h ^ UInt64(b)) &* 1099511628211
+            h = (h ^ UInt64(b)) &* 1_099_511_628_211
         }
         return Double(h % 1000) / 1000.0
     }

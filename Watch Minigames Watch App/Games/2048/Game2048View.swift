@@ -163,7 +163,6 @@ struct Game2048Renderer {
                         cornerRadius: 11)
         var sh = ctx
         sh.translateBy(x: 2, y: 3.5)
-        sh.addFilter(.blur(radius: 2.5))
         sh.fill(slab, with: .color(Palette.shadow))
         ctx.fill(slab, with: .color(.white.opacity(0.6)))
         ctx.stroke(slab, with: .color(Palette.ink), style: StrokeStyle(lineWidth: 1.8))
@@ -275,7 +274,6 @@ private struct Game2048Scene: View {
             let slab = Path(roundedRect: slabRect, cornerRadius: 8)
             var sh = ctx
             sh.translateBy(x: 1.5, y: 2.5)
-            sh.addFilter(.blur(radius: 2))
             sh.fill(slab, with: .color(Palette.shadow))
             ctx.fill(slab, with: .color(.white.opacity(0.6)))
             ctx.stroke(slab, with: .color(Palette.ink), style: StrokeStyle(lineWidth: 1.5))

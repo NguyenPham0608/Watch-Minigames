@@ -126,6 +126,7 @@ struct GolfView: View {
         } else if isRound {
             let total = roundStrokes.reduce(0, +)
             roundWasBest = store.recordRound(total: total)
+            Haptics.celebrate()
             withAnimation(.arcadePop) { result = nil; showScorecard = true }
         } else {
             dismiss()

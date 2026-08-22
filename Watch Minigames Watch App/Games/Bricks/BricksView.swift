@@ -358,7 +358,6 @@ private struct BricksScene: View {
             let paddle = Path(roundedRect: rect, cornerRadius: 3)
             var psh = ctx
             psh.translateBy(x: 1, y: 1.8)
-            psh.addFilter(.blur(radius: 1.4))
             psh.fill(paddle, with: .color(Palette.shadow))
             ctx.fill(paddle, with: .color(Palette.boostBlue))
             var stripe = Path()

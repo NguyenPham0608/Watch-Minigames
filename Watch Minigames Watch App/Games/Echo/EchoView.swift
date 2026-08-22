@@ -277,15 +277,11 @@ struct EchoRenderer {
 
         var sh = g
         sh.translateBy(x: 1.5, y: 2.5)
-        sh.addFilter(.blur(radius: 2))
         sh.fill(shape, with: .color(Palette.shadow))
 
         if lit > 0.02 || wrong {
-            var glow = g
-            glow.addFilter(.blur(radius: 5))
-            glow.fill(shape.strokedPath(StrokeStyle(lineWidth: 6)),
-                      with: .color((wrong ? Palette.bumperCoral : main)
-                          .opacity(wrong ? 0.85 : 0.7 * lit)))
+            drawGlowStroke(g, shape: shape, color: wrong ? Palette.bumperCoral : main,
+                          opacity: wrong ? 0.85 : 0.7 * lit)
         }
 
         g.fill(shape, with: .color(wrong ? Palette.bumperCoral : main))
@@ -392,10 +388,7 @@ private struct EchoScene: View {
                 let (main, _) = EchoRenderer.padColors[i]
                 let on = i == litPad ? lit : 0
                 if on > 0.02 {
-                    var glow = ctx
-                    glow.addFilter(.blur(radius: 4))
-                    glow.fill(shape.strokedPath(StrokeStyle(lineWidth: 5)),
-                              with: .color(main.opacity(0.7 * on)))
+                    drawGlowStroke(ctx, shape: shape, color: main, opacity: 0.7 * on)
                 }
                 ctx.fill(shape, with: .color(main))
                 if on > 0.02 {

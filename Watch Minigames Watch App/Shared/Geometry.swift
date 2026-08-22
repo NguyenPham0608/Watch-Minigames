@@ -5,8 +5,8 @@
 //  Shared 2D vector math.
 //
 
-import Foundation
 import CoreGraphics
+import Foundation
 
 // MARK: - Vec2
 

@@ -112,16 +112,16 @@ final class BricksEngine {
         if ballPos.x < Self.ballR + 2 {
             ballPos.x = Self.ballR + 2
             ballVel.x = abs(ballVel.x)
-            Haptics.play(.click, minInterval: 0.05)
+            Haptics.play(.click, minInterval: 0.1)
         } else if ballPos.x > courtW - Self.ballR - 2 {
             ballPos.x = courtW - Self.ballR - 2
             ballVel.x = -abs(ballVel.x)
-            Haptics.play(.click, minInterval: 0.05)
+            Haptics.play(.click, minInterval: 0.1)
         }
         if ballPos.y < Self.ballR + 4 {
             ballPos.y = Self.ballR + 4
             ballVel.y = abs(ballVel.y)
-            Haptics.play(.click, minInterval: 0.05)
+            Haptics.play(.click, minInterval: 0.1)
         }
 
         collidePaddle()
@@ -136,7 +136,7 @@ final class BricksEngine {
                 Haptics.play(.failure, minInterval: 0)
                 notifyMainAsync(onGameOver, score)
             } else {
-                Haptics.play(.directionDown, minInterval: 0)
+                Haptics.play(.retry, minInterval: 0)
                 state = .serving
                 serveAt = nil
             }
@@ -231,11 +231,11 @@ final class BricksEngine {
             // Every brick nudges the rally a touch faster.
             speed = min(speed + 1.6, 330)
             ballVel = ballVel.normalized * speed
-            Haptics.play(.click, minInterval: 0)
+            Haptics.play(.directionDown, minInterval: 0)
             if bricks.isEmpty { levelCleared() }
         } else {
             spawnChip(at: center)
-            Haptics.play(.directionDown, minInterval: 0.08)
+            Haptics.play(.click, minInterval: 0.08)
         }
     }
 
