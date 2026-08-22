@@ -314,7 +314,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.1;
+				MARKETING_VERSION = 1.2;
 				PRODUCT_BUNDLE_IDENTIFIER = "com.nguyen.Watch-Minigames.watchkitapp";
 				PRODUCT_NAME = "Watch Minigames Watch App";
 				SDKROOT = watchos;
@@ -350,7 +350,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.1;
+				MARKETING_VERSION = 1.2;
 				PRODUCT_BUNDLE_IDENTIFIER = "com.nguyen.Watch-Minigames.watchkitapp";
 				PRODUCT_NAME = "Watch Minigames Watch App";
 				SDKROOT = watchos;
@@ -376,7 +376,7 @@
 				DEVELOPMENT_TEAM = F93D9XYLSY;
 				INFOPLIST_KEY_CFBundleDisplayName = "Watch Minigames";
 				IPHONEOS_DEPLOYMENT_TARGET = "$(RECOMMENDED_IPHONEOS_DEPLOYMENT_TARGET)";
-				MARKETING_VERSION = 1.1;
+				MARKETING_VERSION = 1.2;
 				PRODUCT_BUNDLE_IDENTIFIER = "com.nguyen.Watch-Minigames";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
@@ -394,7 +394,7 @@
 				DEVELOPMENT_TEAM = F93D9XYLSY;
 				INFOPLIST_KEY_CFBundleDisplayName = "Watch Minigames";
 				IPHONEOS_DEPLOYMENT_TARGET = "$(RECOMMENDED_IPHONEOS_DEPLOYMENT_TARGET)";
-				MARKETING_VERSION = 1.1;
+				MARKETING_VERSION = 1.2;
 				PRODUCT_BUNDLE_IDENTIFIER = "com.nguyen.Watch-Minigames";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
